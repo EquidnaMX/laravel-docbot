@@ -1,5 +1,19 @@
 <?php
 
+/**
+ * API documentation and custom command listing configuration.
+ *
+ * Defines output directories, route segments, and exclusion patterns
+ * for the Laravel Docbot package.
+ *
+ * PHP version 8.0+
+ *
+ * @package   Equidna\LaravelDocbot
+ * @author    EquidnaMX <info@equidna.mx>
+ * @license   https://opensource.org/licenses/MIT MIT License
+ * @link      https://github.com/EquidnaMX/laravel-docbot Documentation
+ */
+
 return [
     'output_dir' => env('DOCBOT_OUTPUT_DIR', base_path('doc')),
 

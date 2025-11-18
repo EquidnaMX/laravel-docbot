@@ -1,19 +1,39 @@
 <?php
 
+/**
+ * Console command for listing custom Artisan commands.
+ *
+ * Filters out built-in Laravel and framework commands to display only
+ * project-specific custom commands.
+ *
+ * PHP version 8.0+
+ *
+ * @package   Equidna\LaravelDocbot
+ * @author    EquidnaMX <info@equidna.mx>
+ * @license   https://opensource.org/licenses/MIT MIT License
+ * @link      https://github.com/EquidnaMX/laravel-docbot Documentation
+ */
+
 namespace Equidna\LaravelDocbot\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
+/**
+ * Lists all custom Artisan commands excluding built-in Laravel commands.
+ */
 class GenerateCommands extends Command
 {
     protected $signature   = 'docbot:commands';
     protected $description = 'List all custom Artisan commands defined in the project (excluding built-in Laravel/Artisan commands)';
 
     /**
-     * List all custom Artisan commands defined in the project (excluding built-in Laravel/Artisan commands).
+     * List all custom Artisan commands defined in the project.
      *
-     * @return int
+     * Filters out built-in Laravel/Artisan commands using configured exclusion patterns
+     * and generates a Markdown table of custom project commands.
+     *
+     * @return int Exit code (0 for success).
      */
     public function handle(): int
     {

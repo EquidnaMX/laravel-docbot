@@ -1,5 +1,19 @@
 <?php
 
+/**
+ * Service provider for Laravel Docbot package.
+ *
+ * Registers Docbot commands and publishes configuration for Laravel projects.
+ * Provides API documentation generation and custom command listing capabilities.
+ *
+ * PHP version 8.0+
+ *
+ * @package   Equidna\LaravelDocbot
+ * @author    EquidnaMX <info@equidna.mx>
+ * @license   https://opensource.org/licenses/MIT MIT License
+ * @link      https://github.com/EquidnaMX/laravel-docbot Documentation
+ */
+
 namespace Equidna\LaravelDocbot;
 
 use Illuminate\Support\ServiceProvider;
@@ -7,22 +21,14 @@ use Equidna\LaravelDocbot\Console\Commands\GenerateCommands;
 use Equidna\LaravelDocbot\Console\Commands\GenerateRoutes;
 
 /**
- * LaravelDocbotServiceProvider
+ * Service provider for Laravel Docbot package.
  *
- * Registers Docbot commands and publishes configuration for Laravel projects.
- *
- * @category Laravel
- * @package  Equidna\LaravelDocbot
- * @author   EquidnaMX <info@equidna.mx>
- * @license  MIT
- * @link     https://github.com/equidnaMX/com.equidna.laravel-docbot
+ * Registers Docbot commands and publishes configuration files.
  */
 class LaravelDocbotServiceProvider extends ServiceProvider
 {
     /**
-     * Register services.
-     *
-     * @return void
+     * Register services and merge package configuration.
      */
     public function register(): void
     {
@@ -33,9 +39,7 @@ class LaravelDocbotServiceProvider extends ServiceProvider
     }
 
     /**
-     * Bootstrap services.
-     *
-     * @return void
+     * Bootstrap services, register commands and publishable resources.
      */
     public function boot(): void
     {

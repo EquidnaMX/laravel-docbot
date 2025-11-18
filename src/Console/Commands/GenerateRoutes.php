@@ -1,5 +1,19 @@
 <?php
 
+/**
+ * Console command for generating API documentation and Postman collections.
+ *
+ * Reads Laravel route definitions, segments them by prefix, and generates
+ * Markdown documentation and Postman v2.1 collections for each segment.
+ *
+ * PHP version 8.0+
+ *
+ * @package   Equidna\LaravelDocbot
+ * @author    EquidnaMX <info@equidna.mx>
+ * @license   https://opensource.org/licenses/MIT MIT License
+ * @link      https://github.com/EquidnaMX/laravel-docbot Documentation
+ */
+
 namespace Equidna\LaravelDocbot\Console\Commands;
 
 use Illuminate\Console\Command;
@@ -8,6 +22,9 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use ReflectionMethod;
 
+/**
+ * Generates API documentation and Postman collections from Laravel routes.
+ */
 class GenerateRoutes extends Command
 {
     protected $signature   = 'docbot:routes';
@@ -16,7 +33,8 @@ class GenerateRoutes extends Command
     /**
      * Execute the console command: generates API documentation and Postman collections.
      *
-     * @return void
+     * Fetches all routes, segments them by configured prefixes, and generates both
+     * Markdown documentation and Postman JSON collections for each segment.
      */
     public function handle(): void
     {
@@ -103,10 +121,13 @@ class GenerateRoutes extends Command
     /**
      * Build Markdown documentation for a segment.
      *
-     * @param  string $segment
-     * @param  array  $routes
-     * @param  string $tokenVar
-     * @return string
+     * Creates a formatted Markdown table of routes grouped by name prefix,
+     * including method, path, description, and path parameters.
+     *
+     * @param  string $segment   The segment key for the documentation title.
+     * @param  array  $routes    Array of route definitions from route:list.
+     * @param  string $tokenVar  The authentication token variable name.
+     * @return string            Complete Markdown documentation content.
      */
     private function buildMarkdown(string $segment, array $routes, string $tokenVar): string
     {
@@ -156,11 +177,14 @@ class GenerateRoutes extends Command
     /**
      * Build Postman collection for a segment.
      *
-     * @param  string $segment
-     * @param  array  $routes
-     * @param  string $tokenVar
-     * @param  array  $pathParams
-     * @return array
+     * Creates a Postman v2.1 collection with hierarchical folder structure,
+     * pre-request authentication scripts, and collection variables for path parameters.
+     *
+     * @param  string $segment    The segment key for the collection name.
+     * @param  array  $routes     Array of route definitions from route:list.
+     * @param  string $tokenVar   The authentication token variable name.
+     * @param  array  $pathParams Array of path parameter names to include as variables.
+     * @return array              Complete Postman collection structure.
      */
     private function buildPostmanCollection(string $segment, array $routes, string $tokenVar, array $pathParams): array
     {
@@ -242,11 +266,14 @@ class GenerateRoutes extends Command
     }
 
     /**
-     * Build Postman items recursively.
+     * Build Postman items recursively from route segments.
      *
-     * @param  array  $itemsByPath
-     * @param  string $tokenVar
-     * @return array
+     * Organizes routes into hierarchical folder structure based on route name segments,
+     * creating nested folders for grouped endpoints.
+     *
+     * @param  array  $itemsByPath Array of routes with their segment paths.
+     * @param  string $tokenVar    The authentication token variable name.
+     * @return array               Array of Postman items (folders and requests).
      */
     private function buildPostmanItems(array $itemsByPath, string $tokenVar): array
     {
@@ -289,10 +316,12 @@ class GenerateRoutes extends Command
     /**
      * Make a Postman request item with a clean name.
      *
-     * @param  array  $route
-     * @param  string $tokenVar
-     * @param  string $cleanName
-     * @return array
+     * Creates a request item and applies a human-readable name based on route segments.
+     *
+     * @param  array  $route     Route definition array.
+     * @param  string $tokenVar  The authentication token variable name.
+     * @param  string $cleanName The cleaned name to use for the request.
+     * @return array             Postman request item structure.
      */
     private function makeRequestItemWithCleanName(array $route, string $tokenVar, string $cleanName): array
     {
@@ -303,11 +332,14 @@ class GenerateRoutes extends Command
     }
 
     /**
-     * Make a Postman request item.
+     * Make a Postman request item from a route definition.
      *
-     * @param  array  $route
-     * @param  string $tokenVar
-     * @return array
+     * Creates a complete Postman request with pre-request authentication script,
+     * test script, and proper URL variable substitution.
+     *
+     * @param  array  $route    Route definition array with method, uri, and name.
+     * @param  string $tokenVar The authentication token variable name.
+     * @return array            Complete Postman request item structure.
      */
     private function makeRequestItem(array $route, string $tokenVar): array
     {
@@ -361,8 +393,11 @@ class GenerateRoutes extends Command
     /**
      * Extract description from controller action docblock.
      *
-     * @param  string $action
-     * @return string
+     * Uses reflection to read the method's docblock and extracts the first line
+     * of documentation as the route description.
+     *
+     * @param  string $action Controller action string in 'Class@method' format.
+     * @return string         The extracted description or empty string if not found.
      */
     private function extractDescription(string $action): string
     {
