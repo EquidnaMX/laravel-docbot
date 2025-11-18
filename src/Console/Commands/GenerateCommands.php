@@ -1,72 +1,116 @@
 <?php
 
+/**
+ * Console command that emits a Markdown table of custom project commands.
+ *
+ * PHP 8.1+
+ *
+ * @package   Equidna\LaravelDocbot\Console\Commands
+ */
+
 namespace Equidna\LaravelDocbot\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
+use Equidna\LaravelDocbot\Contracts\CommandFilter;
+use Equidna\LaravelDocbot\Contracts\CommandWriter;
 
+/**
+ * Lists user-defined Artisan commands, excluding Laravel's built-ins.
+ */
 class GenerateCommands extends Command
 {
-    protected $signature   = 'docbot:commands';
+    /**
+     * Creates the command instance with its writer and filters.
+     *
+     * @param CommandWriter             $writer   Writer responsible for persisting docs.
+     * @param array<int, CommandFilter> $filters  Command filters to apply.
+     */
+    public function __construct(
+        private CommandWriter $writer,
+        private array $filters = [],
+    ) {
+        parent::__construct();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    protected $signature = 'docbot:commands';
+
+    /**
+     * {@inheritDoc}
+     */
     protected $description = 'List all custom Artisan commands defined in the project (excluding built-in Laravel/Artisan commands)';
 
     /**
-     * List all custom Artisan commands defined in the project (excluding built-in Laravel/Artisan commands).
+     * Generates Markdown documentation for custom project Artisan commands.
      *
-     * @return int
+     * @return int Exit code (0 on success).
      */
     public function handle(): int
     {
-        $excludeNamespaces = config('docbot.exclude_namespaces', []);
-        $excludeCommands   = config('docbot.exclude_commands', []);
+        $app = $this->getApplication();
+        if ($app === null) {
+            $this->error('Unable to access application commands.');
+            $this->writer->write([]);
 
-        $allCommands      = $this->getApplication()->all();
-        $projectCommands  = [];
+            return self::FAILURE;
+        }
 
-        // Filter out built-in commands
+        $allCommands = $app->all();
+        $projectCommands = [];
+
         foreach ($allCommands as $name => $command) {
-            $isBuiltin = false;
-            foreach ($excludeNamespaces as $prefix) {
-                if (Str::startsWith($name, $prefix)) {
-                    $isBuiltin = true;
-                    break;
-                }
+            if ($this->shouldSkip($name, $command)) {
+                continue;
             }
-            if (in_array($name, $excludeCommands, true)) {
-                $isBuiltin = true;
-            }
-            if (!$isBuiltin) {
-                $projectCommands[$name] = $command;
-            }
+
+            $projectCommands[$name] = $command;
         }
 
-        $outputDir = rtrim(config('docbot.output_dir'), '/\\') . '/commands';
-        $outputFile = $outputDir . '/project_commands.md';
-
-        // Ensure output directory exists
-        if (!is_dir($outputDir)) {
-            mkdir($outputDir, 0777, true);
-        }
-
-        // If no custom commands, write empty file and return
         if (empty($projectCommands)) {
             $this->info('No custom project commands found.');
-            file_put_contents($outputFile, "# Custom Project Artisan Commands\n\nNo custom project commands found.\n");
-            return 0;
+
+            $this->writer->write([]);
+
+            return self::SUCCESS;
         }
 
-        // Build markdown table
         $this->info('Custom Project Artisan Commands:');
-        $md = "# Custom Project Artisan Commands\n\n";
-        $md .= "| Command | Description |\n";
-        $md .= "| ------- | ----------- |\n";
+        $payload = [];
+
         foreach ($projectCommands as $name => $command) {
-            $desc = $command->getDescription();
-            $this->line("- <info>{$name}</info>: {$desc}");
-            $md .= "| `{$name}` | {$desc} |\n";
+            $description = $command->getDescription();
+            $this->line("- <info>{$name}</info>: {$description}");
+            $payload[(string) $name] = [
+                'name' => (string) $name,
+                'description' => $description,
+            ];
         }
 
-        file_put_contents($outputFile, $md);
-        return 0;
+        $this->writer->write($payload);
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Evaluates whether a command should be excluded from documentation.
+     *
+     * @param  string                                        $name
+     * @param  \Symfony\Component\Console\Command\Command $command
+     * @return bool
+     */
+    private function shouldSkip(
+        string $name,
+        \Symfony\Component\Console\Command\Command $command,
+    ): bool {
+        foreach ($this->filters as $filter) {
+            if ($filter->shouldSkip($name, $command)) {
+                return true;
+            }
+        }
+
+        return Str::startsWith($name, 'vendor:');
     }
 }

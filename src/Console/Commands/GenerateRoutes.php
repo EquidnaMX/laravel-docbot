@@ -1,387 +1,341 @@
 <?php
 
+/**
+ * Console command responsible for building Markdown and Postman docs for routes.
+ *
+ * PHP 8.1+
+ *
+ * @package   Equidna\LaravelDocbot\Console\Commands
+ */
+
 namespace Equidna\LaravelDocbot\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
-use ReflectionMethod;
+use Equidna\LaravelDocbot\Contracts\RouteCollector;
+use Equidna\LaravelDocbot\Contracts\RouteSegmentResolver;
+use Equidna\LaravelDocbot\Routing\RouteWriterManager;
+use Illuminate\Contracts\Container\Container;
 
+/**
+ * Generates Markdown and Postman documentation for the configured route segments.
+ */
 class GenerateRoutes extends Command
 {
-    protected $signature   = 'docbot:routes';
+    /**
+     * Creates a new instance of the command with its dependencies.
+     *
+     * @param RouteCollector       $collector        Service that normalizes routes.
+     * @param RouteSegmentResolver $segmentResolver  Resolver for configured segments.
+     * @param RouteWriterManager   $writerManager    Registered documentation writers.
+     */
+    public function __construct(
+        private RouteCollector $collector,
+        private RouteSegmentResolver $segmentResolver,
+        private RouteWriterManager $writerManager,
+    ) {
+        parent::__construct();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    protected $signature = 'docbot:routes {--segment=* : Only process the provided segment keys} {--format=* : Limit output formats (markdown, postman)}';
+
+    /**
+     * {@inheritDoc}
+     */
     protected $description = 'Generates API documentation and Postman collections.';
 
     /**
-     * Execute the console command: generates API documentation and Postman collections.
+     * Executes the command and generates the requested artifacts.
      *
-     * @return void
+     * @return int
      */
-    public function handle(): void
+    public function handle(): int
     {
-        // 1. Get all routes as JSON
-        Artisan::call('route:list', ['--json' => true]);
-        $routes = json_decode(Artisan::output(), true);
+        $writers = $this->writerManager->all();
 
-        $this->info('Total routes: ' . count($routes));
+        if (empty($writers)) {
+            $this->error('No Docbot route writers are registered.');
 
-        // 2. Prepare segments (web + custom)
-        $segments = array_merge(
-            [
-                [
-                    'key' => 'web', // No prefix for web, acts as default
-                ],
-            ],
-            config('docbot.segments')
+            return self::FAILURE;
+        }
+
+        $formats = $this->resolveFormats(array_keys($writers));
+
+        if (empty($formats)) {
+            return self::FAILURE;
+        }
+
+        $segments = $this->segmentResolver->segments();
+
+        if (empty($segments)) {
+            $this->error('No Docbot segments are configured.');
+
+            return self::FAILURE;
+        }
+
+        $selectedSegments = $this->filterSegments($segments);
+
+        if (empty($selectedSegments)) {
+            $this->error('No matching segments found for the provided filter.');
+
+            return self::FAILURE;
+        }
+
+        $routes = $this->collector->collect();
+
+        if (empty($routes)) {
+            $this->warn('No routes registered in the application.');
+
+            return self::SUCCESS;
+        }
+
+        $this->components->info('Segments: ' . implode(', ', array_keys($selectedSegments)));
+        $this->components->info('Formats : ' . implode(', ', $formats));
+
+        $routesBySegment = $this->splitRoutes(
+            $routes,
+            $selectedSegments,
         );
 
-        $segRoutes = [];
-        $params    = [];
-
-        // 3. Initialize segment arrays
-        foreach ($segments as $seg) {
-            $segRoutes[$seg['key']] = [];
-            $params[$seg['key']] = [];
-        }
-
-        $this->info('Segments: ' . implode(', ', array_column($segments, 'key')));
-
-        // 4. Assign routes to segments
-        foreach ($routes as $route) {
-            $uri = $route['uri'];
-            $matched = false;
-            foreach ($segments as $seg) {
-                if (isset($seg['prefix']) && Str::startsWith($uri, $seg['prefix'])) {
-                    $segRoutes[$seg['key']][] = $route;
-                    // Collect path params
-                    preg_match_all('/\{(\w+)\}/', $uri, $m);
-                    foreach ($m[1] as $p) {
-                        $params[$seg['key']][$p] = true;
-                    }
-                    $matched = true;
-                    break;
-                }
-            }
-            if (!$matched) {
-                // Add to 'web' segment if not matched by any prefix
-                $segRoutes['web'][] = $route;
-                preg_match_all('/\{(\w+)\}/', $uri, $m);
-                foreach ($m[1] as $p) {
-                    $params['web'][$p] = true;
-                }
-            }
-        }
-
-        // 5. Generate documentation for each segment
-        foreach ($segments as $seg) {
-            $key = $seg['key'];
-            $routesForSegment = $segRoutes[$key];
+        foreach ($selectedSegments as $key => $segment) {
+            $routesForSegment = $routesBySegment[$key] ?? [];
             $routeCount = count($routesForSegment);
-            $this->info("Segment '$key' route count: $routeCount");
-            $dir = rtrim(config('docbot.output_dir'), '/\\') . '/routes/' . $key;
-            File::ensureDirectoryExists($dir);
-            $tokenVar = $seg['token'] ?? 'WEB_TOKEN';
+
+            $this->components->info(
+                sprintf(
+                    "Segment '%s' route count: %d",
+                    $key,
+                    $routeCount,
+                ),
+            );
 
             if ($routeCount === 0) {
                 continue;
             }
 
-            // Markdown documentation
-            $markdown = $this->buildMarkdown($key, $routesForSegment, $tokenVar);
-            file_put_contents($dir . "/{$key}.md", $markdown);
+            $directory = $this->segmentOutputPath($segment);
+            File::ensureDirectoryExists($directory);
 
-            // Postman collection
-            $collection = $this->buildPostmanCollection($key, $routesForSegment, $tokenVar, array_keys($params[$key]));
-            file_put_contents($dir . "/{$key}.json", json_encode($collection, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        }
-
-        $this->info('Docs generated');
-    }
-
-
-    /**
-     * Build Markdown documentation for a segment.
-     *
-     * @param  string $segment
-     * @param  array  $routes
-     * @param  string $tokenVar
-     * @return string
-     */
-    private function buildMarkdown(string $segment, array $routes, string $tokenVar): string
-    {
-        $out = "# $segment documentation\n\n";
-        $out .= "Authenticated via Bearer {{" . $tokenVar . "}} in the `Authorization` header.\n\n";
-
-        $groups = [];
-
-        foreach ($routes as $r) {
-            $name   = $r['name'] ?: 'misc';
-            $group  = explode('.', $name)[0];
-
-            $groups[$group][] = $r;
-        }
-
-        foreach ($groups as $group => $items) {
-            $out .= "## $group\n";
-            $out .= "| Method | Path | Description | Path Params |\n";
-            $out .= "| ------ | ---- | ----------- | ----------- |\n";
-
-            foreach ($items as $r) {
-                $uri = $r['uri'];
-                // Exclude HEAD and join with comma
-                $methodsArr = array_filter(explode('|', $r['method']), fn($m) => $m !== 'HEAD');
-                $methods    = implode(',', $methodsArr);
-                $action     = $r['action'];
-
-                $desc       = $this->extractDescription($action);
-
-                $pathParams = [];
-
-                preg_match_all('/\{(\w+)\}/', $uri, $m);
-
-                foreach ($m[1] as $p) {
-                    $pathParams[] = $p;
-                }
-
-                $out .= "| $methods | `$uri` | $desc | " . implode(',', $pathParams) . " |\n";
+            foreach ($formats as $format) {
+                $writers[$format]->write(
+                    $segment,
+                    $routesForSegment,
+                    $directory,
+                );
             }
-
-            $out .= "\n";
         }
 
-        return $out;
+        $this->components->info('Route documentation generated successfully.');
+
+        return self::SUCCESS;
     }
 
     /**
-     * Build Postman collection for a segment.
+     * Filters the configured segments with the --segment option.
      *
-     * @param  string $segment
-     * @param  array  $routes
-     * @param  string $tokenVar
-     * @param  array  $pathParams
-     * @return array
+     * @param  array<string, array<string, mixed>> $segments
+     * @return array<string, array<string, mixed>>
      */
-    private function buildPostmanCollection(string $segment, array $routes, string $tokenVar, array $pathParams): array
+    private function filterSegments(array $segments): array
     {
-        $variables = [
-            [
-                'key' => 'HOST',
-                'value' => 'https://api.example.com',
-                'type' => 'text',
-            ],
-            [
-                'key' => $tokenVar,
-                'value' => '<insert>',
-                'type' => 'secret',
-            ],
-        ];
+        $filter = array_filter((array) ($this->option('segment') ?? []));
 
-        // Collect all unique path parameters from all routes and from $pathParams
-        $allParams = [];
-
-        // From $pathParams argument (legacy, may be empty)
-
-        foreach ($pathParams as $p) {
-            $allParams[$p] = true;
+        if (empty($filter)) {
+            return $segments;
         }
 
-        // From all route URIs
-        foreach ($routes as $r) {
-            $uri = $r['uri'];
-            preg_match_all('/\{(\w+)\}/', $uri, $m);
-            foreach ($m[1] as $p) {
-                $allParams[$p] = true;
-            }
-        }
-        // Add any not already present in variables
-        $existingKeys = array_column($variables, 'key');
+        $filtered = [];
 
-        foreach (array_keys($allParams) as $p) {
-            if (!in_array($p, $existingKeys)) {
-                $variables[] = [
-                    'key' => $p,
-                    'value' => '',
-                    'type' => 'text',
-                ];
-            }
-        }
+        foreach ($filter as $rawKey) {
+            $key = $this->stringOrNull($rawKey);
 
-        $collection = [
-            'info' => [
-                'name' => "$segment API",
-                'schema' => 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
-            ],
-            'item' => [],
-            'variable' => $variables,
-        ];
+            if ($key === null) {
+                $this->warn('Skipping non-string segment filter value.');
 
-        $itemsByPath = [];
-        foreach ($routes as $r) {
-            // Si el nombre está vacío, usar 'METHOD uri' como nombre legible
-            $routeName = $r['name'];
-            if (empty($routeName)) {
-                $routeName = $r['method'] . ' ' . $r['uri'];
+                continue;
             }
-            $segments = explode('.', $routeName);
-            // Remove the root segment (e.g., 'api', 'client-api', etc.)
-            if (count($segments) > 1) {
-                array_shift($segments);
-            } else {
-                // If no segments or only one, put in misc
-                $segments = ['misc'];
+
+            if (!array_key_exists($key, $segments)) {
+                $this->warn("Segment '" . $key . "' is not defined in config/docbot.php");
+
+                continue;
             }
-            $itemsByPath[] = [
-                'segments' => $segments,
-                'route' => array_merge($r, ['_postman_name' => $routeName]),
-            ];
+
+            $filtered[$key] = $segments[$key];
         }
 
-        $collection['item'] = $this->buildPostmanItems($itemsByPath, $tokenVar);
-        return $collection;
+        return $filtered;
     }
 
     /**
-     * Build Postman items recursively.
+     * Splits the described routes into their configured segments.
      *
-     * @param  array  $itemsByPath
-     * @param  string $tokenVar
-     * @return array
+     * @param  array<int, array<string, mixed>>        $routes
+     * @param  array<string, array<string, mixed>>    $segments
+     * @return array<string, array<int, array<string, mixed>>>
      */
-    private function buildPostmanItems(array $itemsByPath, string $tokenVar): array
-    {
-        $grouped = [];
-
-        foreach ($itemsByPath as $item) {
-            $seg = $item['segments'];
-            if (count($seg) === 1) {
-                $grouped[] = $this->makeRequestItemWithCleanName($item['route'], $tokenVar, $seg[0]);
-            } else {
-                $first = array_shift($seg);
-                $grouped[$first][] = ['segments' => $seg, 'route' => $item['route']];
-            }
-        }
-
+    private function splitRoutes(
+        array $routes,
+        array $segments,
+    ): array {
         $result = [];
 
-        foreach ($grouped as $key => $value) {
-            if (is_array($value) && isset($value[0]['segments'])) {
-                if (count($value) === 1 && count($value[0]['segments']) === 1) {
-                    $result[] = $this->makeRequestItemWithCleanName($value[0]['route'], $tokenVar, $value[0]['segments'][0]);
-                } else {
-                    $children = $this->buildPostmanItems($value, $tokenVar);
-                    if (count($children) === 1) {
-                        $result[] = $children[0];
-                    } else {
-                        $result[] = [
-                            'name' => $key,
-                            'item' => $children
-                        ];
-                    }
+        foreach ($segments as $key => $segment) {
+            $result[$key] = [];
+        }
+
+        foreach ($routes as $route) {
+            $assigned = false;
+
+            foreach ($segments as $key => $segment) {
+                if (isset($segment['key']) && $segment['key'] === 'web') {
+                    continue;
                 }
-            } else {
-                $result[] = $value;
+
+                if ($this->matchesSegment($route, $segment)) {
+                    $result[$key][] = $route;
+                    $assigned = true;
+
+                    break;
+                }
+            }
+
+            if (!$assigned && array_key_exists('web', $segments)) {
+                $result['web'][] = $route;
             }
         }
+
         return $result;
     }
 
     /**
-     * Make a Postman request item with a clean name.
+     * Evaluates whether a described route fits a segment definition.
      *
-     * @param  array  $route
-     * @param  string $tokenVar
-     * @param  string $cleanName
-     * @return array
+     * @param  array<string, mixed> $route
+     * @param  array<string, mixed> $segment
+     * @return bool
      */
-    private function makeRequestItemWithCleanName(array $route, string $tokenVar, string $cleanName): array
-    {
-        $item = $this->makeRequestItem($route, $tokenVar);
-        // Usar el nombre calculado si existe, si no, usar el cleanName
-        $item['name'] = $route['_postman_name'] ?? $cleanName;
-        return $item;
+    private function matchesSegment(
+        array $route,
+        array $segment,
+    ): bool {
+        // Guard types: ensure we have strings/arrays before using helpers
+        if (!empty($segment['prefix'])) {
+            if (!isset($route['uri']) || !is_string($route['uri']) || !is_string($segment['prefix'])) {
+                return false;
+            }
+
+            if (!Str::startsWith($route['uri'], $segment['prefix'])) {
+                return false;
+            }
+        }
+
+        if (!empty($segment['domain'])) {
+            if (!isset($route['domain']) || !is_string($route['domain']) || !is_string($segment['domain'])) {
+                return false;
+            }
+
+            if ($segment['domain'] !== $route['domain']) {
+                return false;
+            }
+        }
+
+        // Middleware include/exclude checks
+        $routeMiddleware = $route['middleware'] ?? [];
+        if (!is_array($routeMiddleware) && !($routeMiddleware instanceof \Traversable)) {
+            $routeMiddleware = [];
+        }
+
+        if (!empty($segment['include_middleware']) && is_iterable($segment['include_middleware'])) {
+            foreach ($segment['include_middleware'] as $middleware) {
+                if (!in_array($middleware, (array) $routeMiddleware, true)) {
+                    return false;
+                }
+            }
+        }
+
+        if (!empty($segment['exclude_middleware']) && is_iterable($segment['exclude_middleware'])) {
+            foreach ($segment['exclude_middleware'] as $middleware) {
+                if (in_array($middleware, (array) $routeMiddleware, true)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
-     * Make a Postman request item.
+     * Resolves which output formats should be generated.
      *
-     * @param  array  $route
-     * @param  string $tokenVar
-     * @return array
+     * @param  array<int, string> $availableFormats
+     * @return array<int, string>
      */
-    private function makeRequestItem(array $route, string $tokenVar): array
+    private function resolveFormats(array $availableFormats): array
     {
-        $method = explode('|', $route['method'])[0];
-        $uri    = $route['uri'];
+        $requested = array_filter((array) ($this->option('format') ?? []));
 
-        // Replace {param} with {{param}} for Postman variable syntax
-        $uriWithVars = preg_replace_callback(
-            '/\{(\w+)\}/',
-            function ($matches) {
-                return '{{' . $matches[1] . '}}';
-            },
-            $uri
-        );
+        if (empty($requested)) {
+            return $availableFormats;
+        }
 
-        $body = null;
+        $valid = [];
 
-        return [
-            'name' => $route['_postman_name'] ?? ($route['name'] ?: ($method . ' ' . $uriWithVars)),
-            'event' => [
-                [
-                    'listen' => 'prerequest',
-                    'script' => [
-                        'exec' => [
-                            "pm.request.headers.upsert({key: 'Authorization', value: `Bearer {{" . $tokenVar . "}}`});"
-                        ]
-                    ]
-                ],
-                [
-                    'listen' => 'test',
-                    'script' => [
-                        'exec' => [
-                            "pm.test(\"Status is 2xx\", () => pm.response.code >= 200 && pm.response.code < 300);"
-                        ]
-                    ]
-                ],
-            ],
-            'request' => [
-                'method' => $method,
-                'header' => [],
-                'url' => [
-                    'raw' => "{{HOST}}/$uriWithVars",
-                    'host' => ['{{HOST}}'],
-                    'path' => explode('/', $uriWithVars),
-                ],
-                'body' => $body,
-            ],
-        ];
+        foreach ($requested as $rawFormat) {
+            $format = $this->stringOrNull($rawFormat);
+
+            if ($format === null || !in_array($format, $availableFormats, true)) {
+                $this->warn("Unsupported format '" . ($format ?? 'unknown') . "' ignored.");
+
+                continue;
+            }
+
+            $valid[] = $format;
+        }
+
+        return array_values(array_unique($valid));
     }
 
     /**
-     * Extract description from controller action docblock.
+     * Computes the output path for a specific segment.
      *
-     * @param  string $action
+     * @param  array<string, mixed> $segment
      * @return string
      */
-    private function extractDescription(string $action): string
+    private function segmentOutputPath(array $segment): string
     {
-        if (!str_contains($action, '@')) {
-            return '';
+        $rootConfig = config('docbot.output_dir');
+        $rootValue = $this->stringOrNull($rootConfig);
+        $root = rtrim($rootValue ?? base_path('doc'), '/\\');
+
+        $key = $this->stringOrNull($segment['key'] ?? null, 'unknown');
+
+        return $root . '/routes/' . $key;
+    }
+
+    /**
+     * @param  mixed       $value
+     * @param  string|null $fallback
+     * @return string|null
+     */
+    private function stringOrNull(mixed $value, ?string $fallback = null): ?string
+    {
+        if (is_string($value)) {
+            return $value;
         }
 
-        [$class, $method] = explode('@', $action);
-
-        if (!class_exists($class) || !method_exists($class, $method)) {
-            return '';
+        if (is_int($value) || is_float($value) || is_bool($value)) {
+            return (string) $value;
         }
 
-        $ref = new ReflectionMethod($class, $method);
-        $doc = $ref->getDocComment();
-        if ($doc) {
-            $lines = array_map(fn($l) => trim(trim($l, "/*")), explode("\n", $doc));
-            return trim($lines[1] ?? '');
+        if (is_object($value) && method_exists($value, '__toString')) {
+            return (string) $value;
         }
-        return '';
+
+        return $fallback;
     }
 }
