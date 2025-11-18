@@ -31,15 +31,7 @@
     }
   },
   "require-dev": {
-    "phpstan/phpstan": "^2.1",
-    "phpunit/phpunit": "^11.0",
-    "phpcsstandards/phpcsutils": "^1.2",
-    "nunomaduro/larastan": "^3.8",
-    "larastan/larastan": "^3.8"
-  },
-  "config": {
-    "allow-plugins": {
-      "dealerdirect/phpcodesniffer-composer-installer": true
-    }
+    "larastan/larastan": "^3.8",
+    "squizlabs/php_codesniffer": "^4.0"
   }
 }

@@ -1,5 +1,9 @@
 parameters:
-  paths:
-    - src
   level: max
   treatPhpDocTypesAsCertain: false
+  bootstrapFiles:
+    - phpstan-bootstrap.php
+    - vendor/autoload.php
+    - vendor/illuminate/support/helpers.php
+  paths:
+    - src
