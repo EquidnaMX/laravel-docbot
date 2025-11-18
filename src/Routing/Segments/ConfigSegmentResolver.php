@@ -13,8 +13,10 @@ namespace Equidna\LaravelDocbot\Routing\Segments;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use Equidna\LaravelDocbot\Support\ValueHelper;
 use Equidna\LaravelDocbot\Contracts\RouteSegmentResolver;
 use InvalidArgumentException;
+use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
 
 /**
  * Applies route defaults, validation, and normalization for each segment.
@@ -63,18 +65,19 @@ final class ConfigSegmentResolver implements RouteSegmentResolver
                 return [
                     $key => [
                         'key' => $key,
-                        'prefix' => $this->stringOrNull($definition['prefix'] ?? null),
-                        'host_variable' => $this->stringOrFallback(
+                        'safe_key' => $this->sanitizeSegmentKey($key),
+                        'prefix' => ValueHelper::stringOrNull($definition['prefix'] ?? null),
+                        'host_variable' => ValueHelper::stringOrFallback(
                             $definition['host_variable'] ?? Arr::get($this->defaults, 'host_variable'),
                             'HOST',
                         ),
-                        'host_value' => $this->stringOrFallback(
+                        'host_value' => ValueHelper::stringOrFallback(
                             $definition['host_value'] ?? Arr::get($this->defaults, 'host_value'),
                             'https://example.com',
                         ),
-                        'domain' => $this->stringOrNull($definition['domain'] ?? null),
-                        'include_middleware' => $this->stringList($definition['include_middleware'] ?? []),
-                        'exclude_middleware' => $this->stringList($definition['exclude_middleware'] ?? []),
+                        'domain' => ValueHelper::stringOrNull($definition['domain'] ?? null),
+                        'include_middleware' => ValueHelper::stringList($definition['include_middleware'] ?? []),
+                        'exclude_middleware' => ValueHelper::stringList($definition['exclude_middleware'] ?? []),
                         'auth' => $this->normalizeAuth($definition),
                     ],
                 ];
@@ -102,13 +105,13 @@ final class ConfigSegmentResolver implements RouteSegmentResolver
             return null;
         }
 
-        $type = Str::lower($this->stringOrFallback($auth['type'] ?? null, 'none'));
+        $type = Str::lower(ValueHelper::stringOrFallback($auth['type'] ?? null, 'none'));
 
         if ($type === 'none') {
             return null;
         }
 
-        $tokenVariable = $this->stringOrNull(
+        $tokenVariable = ValueHelper::stringOrNull(
             $auth['token_variable']
                 ?? $definition['token']
                 ?? Arr::get($this->defaults, 'auth.token_variable'),
@@ -120,7 +123,7 @@ final class ConfigSegmentResolver implements RouteSegmentResolver
 
         return [
             'type' => $type,
-            'header' => $this->stringOrFallback($auth['header'] ?? null, 'Authorization'),
+            'header' => ValueHelper::stringOrFallback($auth['header'] ?? null, 'Authorization'),
             'token_variable' => $tokenVariable,
         ];
     }
@@ -156,57 +159,13 @@ final class ConfigSegmentResolver implements RouteSegmentResolver
     }
 
     /**
-     * @param  mixed       $value
-     * @param  string|null $fallback
-     * @return string|null
-     */
-    private function stringOrNull(mixed $value, ?string $fallback = null): ?string
-    {
-        if (is_string($value)) {
-            return $value;
-        }
-
-        if (is_int($value) || is_float($value) || is_bool($value)) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        return $fallback;
-    }
-
-    /**
-     * @param  mixed  $value
-     * @param  string $fallback
+     * Sanitize a segment key to a safe filename component.
+     *
+     * @param  string $key
      * @return string
      */
-    private function stringOrFallback(mixed $value, string $fallback): string
+    private function sanitizeSegmentKey(string $key): string
     {
-        return $this->stringOrNull($value, $fallback) ?? $fallback;
-    }
-
-    /**
-     * @param  mixed $value
-     * @return array<int, string>
-     */
-    private function stringList(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $strings = [];
-
-        foreach ($value as $item) {
-            $string = $this->stringOrNull($item);
-
-            if ($string !== null && $string !== '') {
-                $strings[] = $string;
-            }
-        }
-
-        return $strings;
+        return Sanitizer::filename($key);
     }
 }

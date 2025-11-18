@@ -12,6 +12,8 @@ namespace Equidna\LaravelDocbot\Routing\Writers;
 
 use Illuminate\Filesystem\Filesystem;
 use Equidna\LaravelDocbot\Contracts\RouteWriter;
+use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
+use Equidna\LaravelDocbot\Support\ValueHelper;
 
 /**
  * Persists Postman v2.1 collections for each Docbot segment.
@@ -79,12 +81,23 @@ final class PostmanRouteWriter implements RouteWriter
     ): void {
         $collection = $this->buildCollection($segment, $routes);
 
-        $segmentKey = $this->stringOrFallback($segment['key'] ?? null, 'unknown');
+        $segmentKey = Sanitizer::filename($segment['safe_key'] ?? $segment['key'] ?? null);
 
-        $this->filesystem->put(
-            rtrim($path, '/\\') . '/' . $segmentKey . '.json',
-            json_encode($collection, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL,
-        );
+        $filePath = rtrim($path, '/\\') . '/' . $segmentKey . '.json';
+
+        $json = json_encode($collection, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw new \RuntimeException('Failed to encode Postman collection to JSON: ' . json_last_error_msg());
+        }
+
+        try {
+            $this->filesystem->ensureDirectoryExists(dirname($filePath));
+            $this->filesystem->put($filePath, $json . PHP_EOL);
+        } catch (\Throwable $e) {
+            $msg = sprintf('Failed to write Postman collection to "%s": %s', $filePath, $e->getMessage());
+
+            throw new \RuntimeException($msg, 0, $e);
+        }
     }
 
     /**
@@ -98,8 +111,8 @@ final class PostmanRouteWriter implements RouteWriter
         array $segment,
         array $routes,
     ): array {
-        $hostVar = $this->stringOrFallback($segment['host_variable'] ?? null, 'host');
-        $hostVal = $this->stringOrFallback($segment['host_value'] ?? null, '');
+        $hostVar = ValueHelper::stringOrFallback($segment['host_variable'] ?? null, 'host');
+        $hostVal = ValueHelper::stringOrFallback($segment['host_value'] ?? null, '');
 
         $variables = [
             [
@@ -110,7 +123,7 @@ final class PostmanRouteWriter implements RouteWriter
         ];
 
         if (!empty($segment['auth']) && is_array($segment['auth'])) {
-            $tokenVar = $this->stringOrNull($segment['auth']['token_variable'] ?? null);
+            $tokenVar = ValueHelper::stringOrNull($segment['auth']['token_variable'] ?? null);
 
             if ($tokenVar !== null) {
                 $variables[] = [
@@ -126,7 +139,7 @@ final class PostmanRouteWriter implements RouteWriter
             $variables,
         );
 
-        $segKey = $this->stringOrFallback($segment['key'] ?? null, 'unknown');
+        $segKey = ValueHelper::stringOrFallback($segment['key'] ?? null, 'unknown');
 
         $collection = [
             'info' => [
@@ -152,37 +165,6 @@ final class PostmanRouteWriter implements RouteWriter
     }
 
     /**
-     * Returns the string representation of the value or null.
-     *
-     * @param  mixed $value
-     * @return string|null
-     */
-    private function stringOrNull(mixed $value): ?string
-    {
-        if (is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        return null;
-    }
-
-    /**
-     * Returns the string value or the provided fallback when absent.
-     *
-     * @param  mixed  $value
-     * @param  string $fallback
-     * @return string
-     */
-    private function stringOrFallback(mixed $value, string $fallback): string
-    {
-        return $this->stringOrNull($value) ?? $fallback;
-    }
-
-    /**
      * Appends any discovered path params to the Postman variables array.
      *
      * @param  array<int, DocbotRoute>    $routes
@@ -201,7 +183,7 @@ final class PostmanRouteWriter implements RouteWriter
             }
 
             foreach ($route['path_parameters'] as $param) {
-                $paramKey = $this->stringOrNull($param);
+                $paramKey = ValueHelper::stringOrNull($param);
 
                 if ($paramKey === null || in_array($paramKey, $existingKeys, true)) {
                     continue;
@@ -238,9 +220,9 @@ final class PostmanRouteWriter implements RouteWriter
             }
 
             foreach ($route['methods'] as $method) {
-                $name = $this->stringOrNull($route['name'] ?? null);
+                $name = ValueHelper::stringOrNull($route['name'] ?? null);
 
-                $normalizedMethod = $this->stringOrNull($method);
+                $normalizedMethod = ValueHelper::stringOrNull($method);
 
                 if ($normalizedMethod === null) {
                     continue;
@@ -314,7 +296,7 @@ final class PostmanRouteWriter implements RouteWriter
             }
 
             $first = array_shift($segments);
-            $folder = $this->stringOrFallback($first, 'misc');
+            $folder = ValueHelper::stringOrFallback($first, 'misc');
 
             $folders[$folder][] = [
                 'segments' => array_values($segments),
@@ -348,7 +330,7 @@ final class PostmanRouteWriter implements RouteWriter
         array $route,
         string $method,
     ): array {
-        $uriWithVars = $this->convertUri($this->stringOrFallback($route['uri'] ?? null, ''));
+        $uriWithVars = $this->convertUri(ValueHelper::stringOrFallback($route['uri'] ?? null, ''));
         $headers = $this->buildHeaders($segment);
         $hostPlaceholder = $this->buildHostPlaceholder($segment);
 
@@ -397,8 +379,8 @@ final class PostmanRouteWriter implements RouteWriter
             return [];
         }
 
-        $headerKey = $this->stringOrFallback($segment['auth']['header'] ?? null, 'Authorization');
-        $tokenVar = $this->stringOrFallback($segment['auth']['token_variable'] ?? null, 'token');
+        $headerKey = ValueHelper::stringOrFallback($segment['auth']['header'] ?? null, 'Authorization');
+        $tokenVar = ValueHelper::stringOrFallback($segment['auth']['token_variable'] ?? null, 'token');
 
         return [
             [
@@ -417,7 +399,7 @@ final class PostmanRouteWriter implements RouteWriter
      */
     private function buildHostPlaceholder(array $segment): string
     {
-        $variable = $this->stringOrFallback($segment['host_variable'] ?? null, 'host');
+        $variable = ValueHelper::stringOrFallback($segment['host_variable'] ?? null, 'host');
 
         return '{{' . $variable . '}}';
     }
@@ -464,10 +446,10 @@ final class PostmanRouteWriter implements RouteWriter
         string $method,
     ): string {
         if (!empty($route['name'])) {
-            return strtoupper($method) . ' ' . $this->stringOrFallback($route['name'], '');
+            return strtoupper($method) . ' ' . ValueHelper::stringOrFallback($route['name'], '');
         }
 
-        return strtoupper($method) . ' ' . $this->stringOrFallback($route['uri'] ?? null, '');
+        return strtoupper($method) . ' ' . ValueHelper::stringOrFallback($route['uri'] ?? null, '');
     }
 
     /**
@@ -515,7 +497,7 @@ final class PostmanRouteWriter implements RouteWriter
     private function buildAuth(array $auth): array
     {
         if (($auth['type'] ?? null) === 'bearer') {
-            $tokenVar = $this->stringOrFallback($auth['token_variable'] ?? null, 'token');
+            $tokenVar = ValueHelper::stringOrFallback($auth['token_variable'] ?? null, 'token');
 
             return [
                 'type' => 'bearer',
@@ -530,8 +512,8 @@ final class PostmanRouteWriter implements RouteWriter
         }
 
         if (($auth['type'] ?? null) === 'header') {
-            $headerVal = $this->stringOrFallback($auth['header'] ?? null, 'Authorization');
-            $tokenVar = $this->stringOrFallback($auth['token_variable'] ?? null, 'token');
+            $headerVal = ValueHelper::stringOrFallback($auth['header'] ?? null, 'Authorization');
+            $tokenVar = ValueHelper::stringOrFallback($auth['token_variable'] ?? null, 'token');
 
             return [
                 'type' => 'apikey',

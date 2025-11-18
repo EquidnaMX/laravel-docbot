@@ -1,4 +1,5 @@
 <?php
+
 // Bootstrap for PHPStan: define minimal Laravel helper stubs used by the package
 // This file is only used during static analysis and should not affect runtime.
 

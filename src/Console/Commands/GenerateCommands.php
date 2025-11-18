@@ -41,7 +41,7 @@ class GenerateCommands extends Command
     /**
      * {@inheritDoc}
      */
-    protected $description = 'List all custom Artisan commands defined in the project (excluding built-in Laravel/Artisan commands)';
+    protected $description = 'List custom Artisan commands defined in the project (excludes built-in commands)';
 
     /**
      * Generates Markdown documentation for custom project Artisan commands.

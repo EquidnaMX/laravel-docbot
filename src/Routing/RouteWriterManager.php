@@ -53,7 +53,22 @@ final class RouteWriterManager
                 throw new InvalidArgumentException($class . ' must implement ' . RouteWriter::class);
             }
 
-            $this->cache[$writer->format()] = $writer;
+            $format = $writer->format();
+
+            if (isset($this->cache[$format])) {
+                $existing = get_class($this->cache[$format]);
+
+                $message = sprintf(
+                    'Duplicate route writer format registered: %s (conflict between %s and %s)',
+                    $format,
+                    $existing,
+                    $class,
+                );
+
+                throw new InvalidArgumentException($message);
+            }
+
+            $this->cache[$format] = $writer;
         }
 
         return $this->cache;

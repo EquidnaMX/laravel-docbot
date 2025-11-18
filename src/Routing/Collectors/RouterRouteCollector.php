@@ -11,8 +11,10 @@
 namespace Equidna\LaravelDocbot\Routing\Collectors;
 
 use Illuminate\Routing\Route;
+use Illuminate\Routing\RouteCollectionInterface;
 use Illuminate\Routing\Router;
 use Equidna\LaravelDocbot\Contracts\RouteCollector;
+use Traversable;
 
 /**
  * Produces normalized route metadata for downstream doc writers.
@@ -34,24 +36,34 @@ final class RouterRouteCollector implements RouteCollector
      */
     public function collect(): array
     {
-        $routeCollection = $this->router->getRoutes();
+        return array_map(
+            fn(Route $route): array => $this->describeRoute($route),
+            $this->resolveRoutes($this->router->getRoutes()),
+        );
+    }
 
-        /** @var array<int, Route> $routes */
-        $routes = method_exists($routeCollection, 'getRoutes')
-            ? $routeCollection->getRoutes()
-            : [];
+    /**
+     * Extracts an ordered list of framework route instances from the router.
+     *
+     * @param  RouteCollectionInterface  $routeCollection
+     * @return array<int, Route>
+     */
+    private function resolveRoutes(RouteCollectionInterface $routeCollection): array
+    {
+        $routes = [];
 
-        $described = [];
-
-        foreach ($routes as $route) {
-            if (!$route instanceof Route) {
-                continue;
-            }
-
-            $described[] = $this->describeRoute($route);
+        if ($routeCollection instanceof Traversable) {
+            $routes = iterator_to_array($routeCollection, false);
+        } elseif (method_exists($routeCollection, 'getRoutes')) {
+            $routes = $routeCollection->getRoutes();
         }
 
-        return $described;
+        return array_values(
+            array_filter(
+                $routes,
+                static fn($route): bool => $route instanceof Route,
+            ),
+        );
     }
 
     /**

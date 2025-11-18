@@ -13,10 +13,15 @@ namespace Equidna\LaravelDocbot\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Equidna\LaravelDocbot\Contracts\RouteCollector;
 use Equidna\LaravelDocbot\Contracts\RouteSegmentResolver;
 use Equidna\LaravelDocbot\Routing\RouteWriterManager;
 use Illuminate\Contracts\Container\Container;
+use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
+use Equidna\LaravelDocbot\Support\PathGuard;
+use Equidna\LaravelDocbot\Support\ValueHelper;
+use Throwable;
 
 /**
  * Generates Markdown and Postman documentation for the configured route segments.
@@ -41,7 +46,7 @@ class GenerateRoutes extends Command
     /**
      * {@inheritDoc}
      */
-    protected $signature = 'docbot:routes {--segment=* : Only process the provided segment keys} {--format=* : Limit output formats (markdown, postman)}';
+    protected $signature = 'docbot:routes {--segment=* : Segments} {--format=* : Formats} {--continue-on-error : Continue execution even if a writer fails}';
 
     /**
      * {@inheritDoc}
@@ -96,6 +101,9 @@ class GenerateRoutes extends Command
         $this->components->info('Segments: ' . implode(', ', array_keys($selectedSegments)));
         $this->components->info('Formats : ' . implode(', ', $formats));
 
+        $continueOnError = (bool) $this->option('continue-on-error');
+        $writerFailures = [];
+
         $routesBySegment = $this->splitRoutes(
             $routes,
             $selectedSegments,
@@ -121,12 +129,43 @@ class GenerateRoutes extends Command
             File::ensureDirectoryExists($directory);
 
             foreach ($formats as $format) {
-                $writers[$format]->write(
-                    $segment,
-                    $routesForSegment,
-                    $directory,
-                );
+                try {
+                    $writers[$format]->write(
+                        $segment,
+                        $routesForSegment,
+                        $directory,
+                    );
+                } catch (Throwable $throwable) {
+                    $this->laravel->make(ExceptionHandler::class)->report($throwable);
+
+                    $message = sprintf(
+                        "Writer '%s' failed for segment '%s': %s",
+                        $format,
+                        $key,
+                        $throwable->getMessage(),
+                    );
+
+                    $this->components->error($message);
+                    $writerFailures[] = $message;
+
+                    if (!$continueOnError) {
+                        $this->components->error('Aborting because --continue-on-error was not provided.');
+
+                        return self::FAILURE;
+                    }
+                }
             }
+        }
+
+        if (!empty($writerFailures)) {
+            $this->components->warn(
+                sprintf(
+                    'Completed with %d writer failure(s); see logs for details.',
+                    count($writerFailures),
+                ),
+            );
+
+            return self::FAILURE;
         }
 
         $this->components->info('Route documentation generated successfully.');
@@ -151,7 +190,7 @@ class GenerateRoutes extends Command
         $filtered = [];
 
         foreach ($filter as $rawKey) {
-            $key = $this->stringOrNull($rawKey);
+            $key = ValueHelper::stringOrNull($rawKey);
 
             if ($key === null) {
                 $this->warn('Skipping non-string segment filter value.');
@@ -286,7 +325,7 @@ class GenerateRoutes extends Command
         $valid = [];
 
         foreach ($requested as $rawFormat) {
-            $format = $this->stringOrNull($rawFormat);
+            $format = ValueHelper::stringOrNull($rawFormat);
 
             if ($format === null || !in_array($format, $availableFormats, true)) {
                 $this->warn("Unsupported format '" . ($format ?? 'unknown') . "' ignored.");
@@ -308,34 +347,13 @@ class GenerateRoutes extends Command
      */
     private function segmentOutputPath(array $segment): string
     {
-        $rootConfig = config('docbot.output_dir');
-        $rootValue = $this->stringOrNull($rootConfig);
-        $root = rtrim($rootValue ?? base_path('doc'), '/\\');
+        $root = PathGuard::resolveOutputRoot(config('docbot.output_dir'));
 
-        $key = $this->stringOrNull($segment['key'] ?? null, 'unknown');
+        // Prefer a pre-computed safe_key (sanitized) from the resolver; otherwise
+        // build a filesystem-safe filename from the configured key using the
+        // shared Sanitizer utility.
+        $safe = Sanitizer::filename(ValueHelper::stringOrNull($segment['safe_key'] ?? $segment['key'] ?? null));
 
-        return $root . '/routes/' . $key;
-    }
-
-    /**
-     * @param  mixed       $value
-     * @param  string|null $fallback
-     * @return string|null
-     */
-    private function stringOrNull(mixed $value, ?string $fallback = null): ?string
-    {
-        if (is_string($value)) {
-            return $value;
-        }
-
-        if (is_int($value) || is_float($value) || is_bool($value)) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        return $fallback;
+        return PathGuard::join($root, 'routes', $safe);
     }
 }

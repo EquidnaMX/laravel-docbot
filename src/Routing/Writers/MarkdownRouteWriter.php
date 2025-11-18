@@ -10,12 +10,12 @@
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 
-declare(strict_types=1);
-
 namespace Equidna\LaravelDocbot\Routing\Writers;
 
 use Equidna\LaravelDocbot\Contracts\RouteWriter;
 use Equidna\LaravelDocbot\Routing\Support\RouteDescriptionExtractor;
+use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
+use Equidna\LaravelDocbot\Support\ValueHelper;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Str;
 
@@ -77,12 +77,18 @@ final class MarkdownRouteWriter implements RouteWriter
     ): void {
         $document = $this->buildDocument($segment, $routes);
 
-        $segmentKey = $this->stringOrFallback($segment['key'] ?? null, 'unknown');
+        $segmentKey = Sanitizer::filename($segment['safe_key'] ?? $segment['key'] ?? null);
 
-        $this->filesystem->put(
-            rtrim($path, '/\\') . '/' . $segmentKey . '.md',
-            $document,
-        );
+        $filePath = rtrim($path, '/\\') . '/' . $segmentKey . '.md';
+
+        try {
+            $this->filesystem->ensureDirectoryExists(dirname($filePath));
+            $this->filesystem->put($filePath, $document);
+        } catch (\Throwable $e) {
+            $msg = sprintf('Failed to write Markdown route documentation to "%s": %s', $filePath, $e->getMessage());
+
+            throw new \RuntimeException($msg, 0, $e);
+        }
     }
 
     /**
@@ -96,18 +102,18 @@ final class MarkdownRouteWriter implements RouteWriter
         array $segment,
         array $routes,
     ): string {
-        $segKey = $this->stringOrFallback($segment['key'] ?? null, 'unknown');
-        $hostVar = $this->stringOrFallback($segment['host_variable'] ?? null, 'host');
-        $hostVal = $this->stringOrFallback($segment['host_value'] ?? null, '');
+        $segKey = ValueHelper::stringOrFallback($segment['key'] ?? null, 'unknown');
+        $hostVar = ValueHelper::stringOrFallback($segment['host_variable'] ?? null, 'host');
+        $hostVal = ValueHelper::stringOrFallback($segment['host_value'] ?? null, '');
 
         $header = sprintf("# %s documentation\n\n", $segKey);
         $header .= sprintf("**Base URL:** `{{%s}}` (defaults to %s).\n\n", $hostVar, $hostVal);
 
         if (!empty($segment['auth']) && is_array($segment['auth'])) {
             $auth = $segment['auth'];
-            $type = Str::ucfirst($this->stringOrFallback($auth['type'] ?? null, 'unknown'));
-            $tokenVar = $this->stringOrFallback($auth['token_variable'] ?? null, 'token');
-            $headerName = $this->stringOrFallback($auth['header'] ?? null, 'Authorization');
+            $type = Str::ucfirst(ValueHelper::stringOrFallback($auth['type'] ?? null, 'unknown'));
+            $tokenVar = ValueHelper::stringOrFallback($auth['token_variable'] ?? null, 'token');
+            $headerName = ValueHelper::stringOrFallback($auth['header'] ?? null, 'Authorization');
 
             $header .= sprintf(
                 "Authenticated via %s `{{%s}}` in the `%s` header.\n\n",
@@ -122,7 +128,7 @@ final class MarkdownRouteWriter implements RouteWriter
         $groups = [];
 
         foreach ($routes as $route) {
-            $name = $this->stringOrFallback($route['name'] ?? null, 'misc');
+            $name = ValueHelper::stringOrFallback($route['name'] ?? null, 'misc');
             $parts = explode('.', $name === '' ? 'misc' : $name);
             $groupKey = $parts[0] ?? 'misc';
             $groups[$groupKey][] = $route;
@@ -138,10 +144,10 @@ final class MarkdownRouteWriter implements RouteWriter
             foreach ($items as $route) {
                 $methods = $this->normalizeList($route['methods'] ?? []);
                 $params = $this->normalizeList($route['path_parameters'] ?? []);
-                $uri = $this->sanitizeCell($this->stringOrFallback($route['uri'] ?? null, ''));
-                $action = $this->stringOrFallback($route['action'] ?? null, '');
-                $desc = $this->sanitizeCell($this->descriptions->extract($action));
-                $params = $this->sanitizeCell($params);
+                $uri = Sanitizer::cell(ValueHelper::stringOrFallback($route['uri'] ?? null, ''));
+                $action = ValueHelper::stringOrFallback($route['action'] ?? null, '');
+                $desc = Sanitizer::cell($this->descriptions->extract($action));
+                $params = Sanitizer::cell($params);
 
                 $document .= sprintf(
                     "| %s | `%s` | %s | %s |\n",
@@ -158,51 +164,7 @@ final class MarkdownRouteWriter implements RouteWriter
         return $document;
     }
 
-    /**
-     * Sanitize table cell content: remove newlines and escape pipes/backticks.
-     *
-     * @param  string $text
-     * @return string
-     */
-    private function sanitizeCell(string $text): string
-    {
-        $text = str_replace(["\r\n", "\r", "\n"], ' ', $text);
-        $text = str_replace('|', '\\|', $text);
-        $text = str_replace('`', '\\`', $text);
-
-        return trim($text);
-    }
-
-    /**
-     * Returns the string representation of a value or null.
-     *
-     * @param  mixed $value
-     * @return string|null
-     */
-    private function stringOrNull(mixed $value): ?string
-    {
-        if (is_string($value) || is_int($value) || is_float($value) || is_bool($value)) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        return null;
-    }
-
-    /**
-     * Returns a string or the provided fallback when missing.
-     *
-     * @param  mixed   $value
-     * @param  string  $fallback
-     * @return string
-     */
-    private function stringOrFallback(mixed $value, string $fallback): string
-    {
-        return $this->stringOrNull($value) ?? $fallback;
-    }
+    // Cell sanitization moved to Routing\Support\Sanitizer::cell
 
     /**
      * Normalizes a list of scalar-ish values into a comma-separated string.
@@ -219,7 +181,7 @@ final class MarkdownRouteWriter implements RouteWriter
         $normalized = [];
 
         foreach ($values as $value) {
-            $stringValue = $this->stringOrNull($value);
+            $stringValue = ValueHelper::stringOrNull($value);
 
             if ($stringValue === null) {
                 continue;

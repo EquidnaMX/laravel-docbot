@@ -12,6 +12,7 @@ namespace Equidna\LaravelDocbot\Commands\Writers;
 
 use Illuminate\Filesystem\Filesystem;
 use Equidna\LaravelDocbot\Contracts\CommandWriter;
+use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
 
 /**
  * Persists the commands table to doc/commands/project_commands.md by default.
@@ -40,44 +41,37 @@ final class MarkdownCommandWriter implements CommandWriter
             ? $this->outputDir
             : base_path('doc/commands');
 
-        $this->filesystem->ensureDirectoryExists($directory);
-
         $outputFile = rtrim($directory, '/\\') . '/' . $this->filename;
 
-        if (empty($commands)) {
-            $this->filesystem->put(
-                $outputFile,
-                "# Custom Project Artisan Commands\n\nNo custom project commands found.\n",
-            );
+        try {
+            $this->filesystem->ensureDirectoryExists($directory);
 
-            return;
+            if (empty($commands)) {
+                $this->filesystem->put(
+                    $outputFile,
+                    "# Custom Project Artisan Commands\n\nNo custom project commands found.\n",
+                );
+
+                return;
+            }
+
+            $markdown = "# Custom Project Artisan Commands\n\n";
+            $markdown .= "| Command | Description |\n";
+            $markdown .= "| ------- | ----------- |\n";
+
+            foreach ($commands as $name => $command) {
+                $desc = Sanitizer::cell($command['description'] ?? '');
+
+                $markdown .= sprintf("| `%s` | %s |\n", Sanitizer::cell($name), $desc);
+            }
+
+            $this->filesystem->put($outputFile, $markdown);
+        } catch (\Throwable $e) {
+            $msg = sprintf('Failed to write command documentation to "%s": %s', $outputFile, $e->getMessage());
+
+            throw new \RuntimeException($msg, 0, $e);
         }
-
-        $markdown = "# Custom Project Artisan Commands\n\n";
-        $markdown .= "| Command | Description |\n";
-        $markdown .= "| ------- | ----------- |\n";
-
-        foreach ($commands as $name => $command) {
-            $desc = $this->sanitizeCell($command['description'] ?? '');
-
-            $markdown .= sprintf("| `%s` | %s |\n", $this->sanitizeCell($name), $desc);
-        }
-
-        $this->filesystem->put(
-            $outputFile,
-            $markdown,
-        );
     }
 
-    /**
-     * Simple sanitizer for Markdown table cells: collapse newlines and escape pipes/backticks.
-     */
-    private function sanitizeCell(string $text): string
-    {
-        $text = str_replace(["\r\n", "\r", "\n"], ' ', $text);
-        $text = str_replace('|', '\\|', $text);
-        $text = str_replace('`', '\\`', $text);
-
-        return trim($text);
-    }
+    // Cell sanitization moved to Routing\Support\Sanitizer::cell
 }

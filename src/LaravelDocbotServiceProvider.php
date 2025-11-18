@@ -31,6 +31,8 @@ use Equidna\LaravelDocbot\Routing\Segments\ConfigSegmentResolver;
 use Equidna\LaravelDocbot\Routing\Support\RouteDescriptionExtractor;
 use Equidna\LaravelDocbot\Routing\Writers\MarkdownRouteWriter;
 use Equidna\LaravelDocbot\Routing\Writers\PostmanRouteWriter;
+use Equidna\LaravelDocbot\Support\PathGuard;
+use Equidna\LaravelDocbot\Support\ValueHelper;
 use RuntimeException;
 
 /**
@@ -183,8 +185,8 @@ class LaravelDocbotServiceProvider extends ServiceProvider
         $this->app->bind(MarkdownCommandWriter::class, function (Container $app): MarkdownCommandWriter {
             /** @var ConfigRepository $config */
             $config = $app->make(ConfigRepository::class);
-            $outputDirBase = $config->get('docbot.output_dir', base_path('doc'));
-            $outputDir = rtrim($this->resolveString($outputDirBase, (string) base_path('doc')), '/\\') . '/commands';
+            $outputRoot = $this->resolveOutputRoot($config);
+            $outputDir = PathGuard::join($outputRoot, 'commands');
             $filename = $this->resolveString(
                 $config->get('docbot.commands.output_filename', 'project_commands.md'),
                 'project_commands.md',
@@ -301,21 +303,7 @@ class LaravelDocbotServiceProvider extends ServiceProvider
      */
     private function resolveStringList(mixed $value): array
     {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $strings = [];
-
-        foreach ($value as $item) {
-            $normalized = $this->resolveString($item);
-
-            if ($normalized !== '') {
-                $strings[] = $normalized;
-            }
-        }
-
-        return $strings;
+        return ValueHelper::stringList($value);
     }
 
     /**
@@ -325,19 +313,18 @@ class LaravelDocbotServiceProvider extends ServiceProvider
      */
     private function resolveString(mixed $value, string $fallback = ''): string
     {
-        if (is_string($value)) {
-            return $value;
-        }
+        return ValueHelper::stringOrFallback($value, $fallback);
+    }
 
-        if (is_int($value) || is_float($value) || is_bool($value)) {
-            return (string) $value;
-        }
-
-        if (is_object($value) && method_exists($value, '__toString')) {
-            return (string) $value;
-        }
-
-        return $fallback;
+    /**
+     * Resolves the guarded Docbot output root ensuring it stays within base_path().
+     *
+     * @param  ConfigRepository $config
+     * @return string
+     */
+    private function resolveOutputRoot(ConfigRepository $config): string
+    {
+        return PathGuard::resolveOutputRoot($config->get('docbot.output_dir'));
     }
 
     /**

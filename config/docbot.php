@@ -18,6 +18,19 @@ use Equidna\LaravelDocbot\Routing\Writers\MarkdownRouteWriter;
 use Equidna\LaravelDocbot\Routing\Writers\PostmanRouteWriter;
 
 return [
+    /*
+    |--------------------------------------------------------------------------
+    | Guarded output directory
+    |--------------------------------------------------------------------------
+    |
+    | Docbot canonicalizes this path with \Equidna\LaravelDocbot\Support\PathGuard
+    | and enforces that the resolved directory always lives under base_path().
+    | Attempts to point outside the project root (for example "../../tmp") will
+    | raise a RuntimeException to mitigate the path traversal techniques outlined
+    | by OWASP, StackHawk, and HackerOne. Use DOCBOT_OUTPUT_DIR to relocate docs
+    | anywhere *inside* your repository tree (e.g., storage/docs or doc).
+    |
+    */
     'output_dir' => env('DOCBOT_OUTPUT_DIR', base_path('doc')),
 
     'route_defaults' => [
@@ -54,6 +67,27 @@ return [
         'writers' => [
             MarkdownRouteWriter::class,
             PostmanRouteWriter::class,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Sanitization policy
+    |--------------------------------------------------------------------------
+    |
+    | Controls how Docbot sanitizes segment keys for filenames. Projects may
+    | override these values to fit filesystem or naming constraints. The
+    | `Sanitizer::filename()` helper consults these values when present.
+    |
+    */
+    'sanitization' => [
+        'filename' => [
+            // PCRE pattern used to match runs of disallowed characters.
+            'pattern' => '/[^A-Za-z0-9._-]+/',
+            // Replacement string used for matches of the pattern above.
+            'replacement' => '-',
+            // Fallback filename when the sanitized result would be empty.
+            'fallback' => 'unknown',
         ],
     ],
 

@@ -35,6 +35,7 @@ php artisan docbot:routes
 - Outputs Markdown and Postman JSON files to `doc/routes/<segment>/`
 - Use `--segment=api` (repeatable) to limit generation to specific segment keys.
 - Use `--format=markdown` or `--format=postman` to generate only the required artifact type (defaults to both).
+- Use `--continue-on-error` to keep processing the remaining writers even if one format fails (Docbot still reports the failure at the end).
 
 ### List Custom Artisan Commands
 
@@ -75,6 +76,50 @@ Example segment config:
 
 Use the `route_defaults` section to define fallback host placeholders and authentication schemes for segments that do not override them. Set `auth.type` to `none` for public segments such as `web`.
 
+### Output directory safety
+
+Path traversal remains a common attack vector in Laravel apps ([StackHawk](https://www.stackhawk.com/blog/laravel-path-traversal-guide-examples-and-prevention/), [OWASP](https://owasp.org/www-community/attacks/Path_Traversal), [HackerOne](https://www.hackerone.com/blog/preventing-directory-traversal-attacks-techniques-and-tips-secure-file-access)). To align with that guidance, Docbot now canonicalizes `docbot.output_dir` using a dedicated `PathGuard` helper and refuses to write outside `base_path()`. If the configured path escapes your project root, Docbot aborts early with a descriptive error so you can correct the value (for example, `DOCBOT_OUTPUT_DIR=doc` or `storage/docs`). This keeps generated Markdown/Postman files inside your repository while still letting you reorganize folders safely.
+
+### Sanitization policy (filenames)
+
+Docbot sanitizes segment keys when producing filesystem artifacts (for example `doc/routes/<segment>/`). The behavior is centralized in `\Equidna\LaravelDocbot\Routing\Support\Sanitizer::filename()` and can be customized via `config/docbot.php` under the `sanitization.filename` keys.
+
+Example — override the default pattern/replacement/fallback in your published config:
+
+```php
+// config/docbot.php
+'sanitization' => [
+  'filename' => [
+    // PCRE pattern used to find runs of disallowed characters
+    'pattern' => '/[^A-Za-z0-9._-]+/',
+    // Replacement for matched runs
+    'replacement' => '-',
+    // Fallback name when the sanitized result would be empty
+    'fallback' => 'unknown',
+  ],
+],
+```
+
+Quick example — expected effect
+
+```php
+// Suppose you configure a segment key like this:
+$segmentKey = 'My API / v1';
+
+// With the default sanitization the filename becomes:
+// Sanitizer::filename('My API / v1') === 'My-API-v1'
+
+// If you prefer underscores instead of hyphens, set replacement => '_':
+// 'sanitization.filename.replacement' => '_'
+// Sanitizer::filename('My API / v1') === 'My_API_v1'
+```
+
+Notes:
+
+- The default pattern replaces any character that is not A-Z, a-z, 0-9, dot, underscore or hyphen with `-`.
+- The `fallback` value is used when the sanitized result would be empty or ambiguous (for example when the configured key is `.` or `..`).
+- `Sanitizer::filename()` will fall back to sensible defaults if the config system is not available (for example during early boot or in non-Laravel contexts).
+
 ### Swapping Writers & Filters
 
 Docbot now exposes explicit extension points via `config/docbot.php`:
@@ -110,3 +155,13 @@ Each writer/filter is resolved through the Laravel service container, so you may
 ---
 
 For more details, see the source code and configuration files. Contributions welcome!
+
+## Changelog
+
+All notable changes to this project are documented in `CHANGELOG.md`.
+
+### Unreleased
+
+- Remove `declare(strict_types=1)` from source files to align with the project's coding standard and tooling.
+- Improve filesystem error handling in writers (Markdown/Postman/Commands): writers now ensure directories exist, validate JSON encoding where applicable, and throw descriptive errors on failure.
+- Detect duplicate route writer formats during service resolution and surface a clear configuration error instead of silently overwriting writers.
