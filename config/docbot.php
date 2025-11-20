@@ -15,6 +15,7 @@ use Equidna\LaravelDocbot\Commands\Writers\MarkdownCommandWriter;
 use Equidna\LaravelDocbot\Routing\Collectors\RouterRouteCollector;
 use Equidna\LaravelDocbot\Routing\Segments\ConfigSegmentResolver;
 use Equidna\LaravelDocbot\Routing\Writers\MarkdownRouteWriter;
+use Equidna\LaravelDocbot\Routing\Writers\OpenApiRouteWriter;
 use Equidna\LaravelDocbot\Routing\Writers\PostmanRouteWriter;
 
 return [
@@ -67,6 +68,7 @@ return [
         'writers' => [
             MarkdownRouteWriter::class,
             PostmanRouteWriter::class,
+            OpenApiRouteWriter::class,
         ],
     ],
 
