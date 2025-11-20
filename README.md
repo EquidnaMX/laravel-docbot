@@ -4,11 +4,11 @@ Generate beautiful API documentation and custom command listings for your Larave
 
 ## 🚀 Introduction
 
-**Laravel Docbot** is a developer-focused package that automates the generation of API route documentation (Markdown & Postman collections) and lists all custom Artisan commands in your Laravel project. Designed for modern teams, it streamlines onboarding, API sharing, and internal documentation.
+**Laravel Docbot** is a developer-focused package that automates the generation of API route documentation (Markdown, Postman collections & OpenAPI/Swagger) and lists all custom Artisan commands in your Laravel project. Designed for modern teams, it streamlines onboarding, API sharing, and internal documentation.
 
 ## Main Use Cases
 
-- **API Documentation:** Instantly generate Markdown and Postman v2.1 collections for all your API routes, segmented by prefix.
+- **API Documentation:** Instantly generate Markdown, Postman v2.1 collections, and OpenAPI 3.0 specifications for all your API routes, segmented by prefix.
 - **Custom Command Listing:** List all custom Artisan commands, excluding built-in Laravel commands, for easy project overview.
 - **Configurable Output:** Customize output directories, route segments, and command exclusions via `config/docbot.php`.
 
@@ -32,9 +32,9 @@ php artisan vendor:publish --tag=laravel-docbot:config
 php artisan docbot:routes
 ```
 
-- Outputs Markdown and Postman JSON files to `doc/routes/<segment>/`
+- Outputs Markdown, Postman JSON, and OpenAPI YAML files to `doc/routes/<segment>/`
 - Use `--segment=api` (repeatable) to limit generation to specific segment keys.
-- Use `--format=markdown` or `--format=postman` to generate only the required artifact type (defaults to both).
+- Use `--format=markdown`, `--format=postman`, or `--format=openapi` to generate only the required artifact type (defaults to all).
 - Use `--continue-on-error` to keep processing the remaining writers even if one format fails (Docbot still reports the failure at the end).
 
 ### List Custom Artisan Commands
@@ -75,6 +75,28 @@ Example segment config:
 ```
 
 Use the `route_defaults` section to define fallback host placeholders and authentication schemes for segments that do not override them. Set `auth.type` to `none` for public segments such as `web`.
+
+### OpenAPI (Swagger) Documentation
+
+The OpenAPI writer generates industry-standard OpenAPI 3.0 specifications in YAML format. These can be:
+
+- Imported into **Swagger UI** for interactive API documentation
+- Used with **Redoc** for beautiful, customizable API docs
+- Imported into **Postman** or **Insomnia** for API testing
+- Used for **client SDK generation** with tools like OpenAPI Generator
+- Integrated with **API gateways** and monitoring tools
+
+**Features:**
+- Automatically extracts route parameters and converts them to OpenAPI format
+- Generates security schemes from your auth configuration (Bearer, API Key)
+- Groups endpoints by tags derived from route names
+- Includes standard HTTP response codes (200, 400, 401, 404, 500)
+- Adds request bodies for POST/PUT/PATCH endpoints
+- Extracts descriptions from controller docblocks
+
+**Example output file:** `doc/routes/api/api.yaml`
+
+You can serve this file with Swagger UI in your Laravel app or use it with external documentation tools. The specification follows the OpenAPI 3.0 standard, ensuring broad compatibility with the API tooling ecosystem.
 
 ### Output directory safety
 
@@ -124,7 +146,7 @@ Notes:
 
 Docbot now exposes explicit extension points via `config/docbot.php`:
 
-- `routes.writers`: array of classes implementing `Equidna\LaravelDocbot\Contracts\RouteWriter`. Provide your own class to output alternative formats (e.g., OpenAPI, HTML).
+- `routes.writers`: array of classes implementing `Equidna\LaravelDocbot\Contracts\RouteWriter`. The package includes Markdown, Postman, and OpenAPI writers out of the box. Provide your own class to output alternative formats (e.g., HTML, AsyncAPI).
 - `routes.collector`: class implementing `Equidna\LaravelDocbot\Contracts\RouteCollector`. Swap out the default router-based collector if you source routes from elsewhere.
 - `routes.segment_resolver`: class implementing `Equidna\LaravelDocbot\Contracts\RouteSegmentResolver` to alter how segments are built.
 - `commands.filters`: array of classes implementing `Equidna\LaravelDocbot\Contracts\CommandFilter`. Use this to skip framework-specific namespaces or generated commands.
@@ -137,7 +159,10 @@ Each writer/filter is resolved through the Laravel service container, so you may
 
 - **Command-based workflow:** All features are implemented as Artisan commands.
 - **API docs:** Reads route definitions directly from Laravel's router, segments them via configurable prefixes/middleware, and extracts controller docblocks for descriptions.
-- **Postman collections:** Generated per segment, compatible with Postman v2.1 schema.
+- **Multiple formats:** 
+  - Markdown tables for human-readable documentation
+  - Postman v2.1 collections for API testing
+  - OpenAPI 3.0 specifications for industry-standard API documentation and tooling integration
 - **Custom command listing:** Filters out built-in commands using config-driven lists.
 - **Extensibility:** Route/command pipelines resolve contracts (`RouteCollector`, `RouteSegmentResolver`, `RouteWriter`, `CommandFilter`, `CommandWriter`) so projects can override behavior via config bindings.
 - **Output:**
