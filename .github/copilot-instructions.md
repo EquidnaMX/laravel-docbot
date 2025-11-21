@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-- **Laravel Docbot** is a package for Laravel 11/12 that generates API documentation and lists custom Artisan commands.
+- **Laravel Docbot** is a package for Laravel 12 that generates API documentation and lists custom Artisan commands.
 - The main entry points are:
   - `src/Console/Commands/GenerateRoutes.php`: Generates Markdown and Postman collections for API routes.
   - `src/Console/Commands/GenerateCommands.php`: Lists custom Artisan commands, excluding built-in ones.
