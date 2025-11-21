@@ -6,7 +6,7 @@
  * PHP 8.1+
  *
  * @package   Equidna\LaravelDocbot\Routing\Writers
- * @author    EquidnaMX <info@equidna.mx>
+ * @author    Gabriel Ruelas <gruelasjr@gmail.com>
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 
@@ -16,7 +16,8 @@ use Equidna\LaravelDocbot\Contracts\RouteWriter;
 use Equidna\LaravelDocbot\Routing\Support\RouteDescriptionExtractor;
 use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
 use Equidna\LaravelDocbot\Support\ValueHelper;
-use Illuminate\Filesystem\Filesystem;
+use Equidna\LaravelDocbot\Support\WriterFilesystem;
+use Equidna\LaravelDocbot\Support\PathGuard;
 
 /**
  * Persists OpenAPI 3.0 specification for each segment.
@@ -44,11 +45,11 @@ use Illuminate\Filesystem\Filesystem;
 final class OpenApiRouteWriter implements RouteWriter
 {
     /**
-     * @param  Filesystem                $filesystem   Filesystem instance for writes.
+     * @param  WriterFilesystem         $filesystem   Filesystem instance for writes.
      * @param  RouteDescriptionExtractor $descriptions Description extractor helper.
      */
     public function __construct(
-        private Filesystem $filesystem,
+        private WriterFilesystem $filesystem,
         private RouteDescriptionExtractor $descriptions,
     ) {
         //
@@ -78,18 +79,11 @@ final class OpenApiRouteWriter implements RouteWriter
 
         $segmentKey = Sanitizer::filename($segment['safe_key'] ?? $segment['key'] ?? null);
 
-        $filePath = rtrim($path, '/\\') . '/' . $segmentKey . '.yaml';
+        $filePath = PathGuard::join($path, $segmentKey . '.yaml');
 
         $yaml = $this->convertToYaml($specification);
 
-        try {
-            $this->filesystem->ensureDirectoryExists(dirname($filePath));
-            $this->filesystem->put($filePath, $yaml);
-        } catch (\Throwable $e) {
-            $msg = sprintf('Failed to write OpenAPI specification to "%s": %s', $filePath, $e->getMessage());
-
-            throw new \RuntimeException($msg, 0, $e);
-        }
+        $this->filesystem->writeFile($filePath, $yaml, 'OpenApiRouteWriter');
     }
 
     /**
@@ -149,7 +143,7 @@ final class OpenApiRouteWriter implements RouteWriter
 
         foreach ($routes as $route) {
             $uri = '/' . ltrim(ValueHelper::stringOrFallback($route['uri'] ?? null, ''), '/');
-            
+
             // Convert Laravel route parameters to OpenAPI format
             $uri = preg_replace('/\{(\w+)\?\}/', '{$1}', $uri);
 
@@ -183,7 +177,7 @@ final class OpenApiRouteWriter implements RouteWriter
         $action = ValueHelper::stringOrFallback($route['action'] ?? null, '');
         $description = $this->descriptions->extract($action);
         $name = ValueHelper::stringOrFallback($route['name'] ?? null, '');
-        
+
         $methodStr = ValueHelper::stringOrFallback($method, 'GET');
         $summary = $name ?: (strtoupper($methodStr) . ' ' . ($route['uri'] ?? ''));
 
@@ -223,14 +217,14 @@ final class OpenApiRouteWriter implements RouteWriter
     private function generateOperationId(array $route, string $method): string
     {
         $name = ValueHelper::stringOrFallback($route['name'] ?? null, '');
-        
+
         if ($name) {
             return strtolower($method) . '_' . str_replace('.', '_', $name);
         }
 
         $uri = ValueHelper::stringOrFallback($route['uri'] ?? null, 'unknown');
         $sanitized = preg_replace('/[^a-zA-Z0-9_]/', '_', $uri);
-        
+
         return strtolower($method) . '_' . $sanitized;
     }
 
@@ -272,7 +266,7 @@ final class OpenApiRouteWriter implements RouteWriter
     /**
      * Builds default responses object.
      *
-     * @return array<string, mixed>
+     * @return array<int|string, mixed>
      */
     private function buildResponses(): array
     {
@@ -343,7 +337,7 @@ final class OpenApiRouteWriter implements RouteWriter
 
         if ($type === 'header') {
             $headerName = ValueHelper::stringOrFallback($auth['header'] ?? null, 'Authorization');
-            
+
             return [
                 'apiKeyAuth' => [
                     'type' => 'apiKey',
@@ -394,7 +388,7 @@ final class OpenApiRouteWriter implements RouteWriter
         }
 
         $parts = explode('.', $name);
-        
+
         // Remove common prefixes
         $stripPrefixes = ['api'];
         if (in_array($parts[0] ?? '', $stripPrefixes, true)) {
@@ -440,7 +434,7 @@ final class OpenApiRouteWriter implements RouteWriter
         foreach ($data as $key => $value) {
             if ($isSequential) {
                 $yaml .= $indentStr . '-';
-                
+
                 if (is_array($value)) {
                     $firstKey = array_key_first($value);
                     if ($firstKey !== null && !is_int($firstKey)) {
@@ -454,7 +448,7 @@ final class OpenApiRouteWriter implements RouteWriter
                 }
             } else {
                 $yaml .= $indentStr . $key . ':';
-                
+
                 if (is_array($value)) {
                     if (empty($value)) {
                         $yaml .= " {}\n";
@@ -491,15 +485,24 @@ final class OpenApiRouteWriter implements RouteWriter
             return (string) $value;
         }
 
-        $strValue = (string) $value;
-        
-        // Quote strings that contain special characters or start with special chars
-        if (preg_match('/[:\{\}\[\],&*#?|\-<>=!%@`\']/', $strValue) || 
-            preg_match('/^\s/', $strValue) ||
-            preg_match('/\s$/', $strValue)) {
-            return "'" . str_replace("'", "''", $strValue) . "'";
+        if (is_scalar($value) || (is_object($value) && method_exists($value, '__toString'))) {
+            $strValue = (string) $value;
+
+            // Quote strings that contain special characters or start with special chars
+            if (
+                preg_match('/[:\{\}\[\],&*#?|\-<>=!%@`\']/', $strValue) ||
+                preg_match('/^\s/', $strValue) ||
+                preg_match('/\s$/', $strValue)
+            ) {
+                return "'" . str_replace("'", "''", $strValue) . "'";
+            }
+
+            return $strValue;
         }
 
-        return $strValue;
+        // Fallback: encode non-scalar values as JSON for YAML-safe output
+        $encoded = json_encode($value);
+
+        return $encoded === false ? '' : $encoded;
     }
 }

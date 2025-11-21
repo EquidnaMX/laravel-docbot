@@ -6,7 +6,7 @@
  * PHP 8.1+
  *
  * @package   Equidna\LaravelDocbot
- * @author    EquidnaMX <info@equidna.mx>
+ * @author    Gabriel Ruelas <gruelasjr@gmail.com>
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 

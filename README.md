@@ -1,6 +1,6 @@
 # Laravel Docbot
 
-Generate beautiful API documentation and custom command listings for your Laravel 12 projects (PHP 8.2+) — effortlessly.
+Generate beautiful API documentation and custom command listings for your Laravel 12 projects (PHP 8.1+) — effortlessly.
 
 ## 🚀 Introduction
 
@@ -87,6 +87,7 @@ The OpenAPI writer generates industry-standard OpenAPI 3.0 specifications in YAM
 - Integrated with **API gateways** and monitoring tools
 
 **Features:**
+
 - Automatically extracts route parameters and converts them to OpenAPI format
 - Generates security schemes from your auth configuration (Bearer, API Key)
 - Groups endpoints by tags derived from route names
@@ -159,7 +160,7 @@ Each writer/filter is resolved through the Laravel service container, so you may
 
 - **Command-based workflow:** All features are implemented as Artisan commands.
 - **API docs:** Reads route definitions directly from Laravel's router, segments them via configurable prefixes/middleware, and extracts controller docblocks for descriptions.
-- **Multiple formats:** 
+- **Multiple formats:**
   - Markdown tables for human-readable documentation
   - Postman v2.1 collections for API testing
   - OpenAPI 3.0 specifications for industry-standard API documentation and tooling integration
@@ -169,12 +170,14 @@ Each writer/filter is resolved through the Laravel service container, so you may
   - API docs: `doc/routes/<segment>/`
   - Command docs: `doc/commands/`
 
+Additional internals (recent changes):
+
+- **Centralized file I/O:** Writers now delegate filesystem writes to a shared `WriterFilesystem` helper which ensures directories exist, centralizes error handling, and provides consistent behavior across Markdown/Postman/OpenAPI/Command writers.
+- **Safer output paths:** `PathGuard` canonicalizes and validates configured output directories and will refuse to write files outside `base_path()`, preventing accidental path traversal or writes to unexpected locations.
+
 ## Development Instructions
 
 - **Code Style:** PSR-12 (see Coding Standards)
-- **Testing:**
-  - Run tests: `vendor/bin/phpunit`
-  - Static analysis: `vendor/bin/phpstan analyse src/ --level=max`
 - **Configuration:** Edit `config/docbot.php` for custom output and exclusions.
 
 ---
@@ -187,6 +190,10 @@ All notable changes to this project are documented in `CHANGELOG.md`.
 
 ### Unreleased
 
-- Remove `declare(strict_types=1)` from source files to align with the project's coding standard and tooling.
-- Improve filesystem error handling in writers (Markdown/Postman/Commands): writers now ensure directories exist, validate JSON encoding where applicable, and throw descriptive errors on failure.
-- Detect duplicate route writer formats during service resolution and surface a clear configuration error instead of silently overwriting writers.
+See `CHANGELOG.md` for full release history. The most recent release is `0.2.0` (2025-11-20), which includes:
+
+- Centralized filesystem writes via `WriterFilesystem` and improved filesystem error handling in all writers.
+- Safer output path canonicalization and enforcement via `PathGuard` (prevents writes outside `base_path()`).
+- PHPStan & docblock fixes and other quality improvements.
+
+Future, unreleased changes will be tracked under the `Unreleased` heading in `CHANGELOG.md`.

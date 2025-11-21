@@ -1,17 +1,17 @@
 {
-  "version": "0.1",
+  "version": "0.2.0",
   "name": "equidna/laravel-docbot",
-  "description": "Laravel package for API documentation and custom command listing.",
+  "description": "Laravel package that generates API documentation and lists custom Artisan commands.",
   "type": "library",
   "license": "MIT",
   "authors": [
     {
-      "name": "EquidnaMX",
-      "email": "info@equidna.mx"
+      "name": "Gabriel Ruelas",
+      "email": "gruelas@gruelas.com"
     }
   ],
   "require": {
-    "php": "^8.2",
+    "php": "^8.1",
     "illuminate/support": "^12.0",
     "illuminate/filesystem": "^12.0",
     "illuminate/routing": "^12.0",
@@ -22,14 +22,6 @@
     "psr-4": {
       "Equidna\\LaravelDocbot\\": "src/"
     }
-  },
-  "autoload-dev": {
-    "psr-4": {
-      "Tests\\": "tests/"
-    },
-    "files": [
-      "tests/Support/helpers.php"
-    ]
   },
   "extra": {
     "laravel": {
@@ -42,5 +34,9 @@
     "larastan/larastan": "^3.8",
     "squizlabs/php_codesniffer": "^4.0",
     "phpunit/phpunit": "11.2"
+  },
+  "scripts": {
+    "analyse": "vendor\\bin\\phpstan analyse -c phpstan.neon --memory-limit=2G",
+    "lint": "vendor\\bin\\phpcs --standard=ruleset.xml src tests"
   }
 }

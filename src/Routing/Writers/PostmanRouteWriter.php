@@ -10,10 +10,11 @@
 
 namespace Equidna\LaravelDocbot\Routing\Writers;
 
-use Illuminate\Filesystem\Filesystem;
+use Equidna\LaravelDocbot\Support\WriterFilesystem;
 use Equidna\LaravelDocbot\Contracts\RouteWriter;
 use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
 use Equidna\LaravelDocbot\Support\ValueHelper;
+use Equidna\LaravelDocbot\Support\PathGuard;
 
 /**
  * Persists Postman v2.1 collections for each Docbot segment.
@@ -51,10 +52,10 @@ use Equidna\LaravelDocbot\Support\ValueHelper;
 final class PostmanRouteWriter implements RouteWriter
 {
     /**
-     * @param  Filesystem $filesystem Filesystem writer instance.
+     * @param  WriterFilesystem $filesystem Filesystem writer instance.
      */
     public function __construct(
-        private Filesystem $filesystem,
+        private WriterFilesystem $filesystem,
     ) {
         //
     }
@@ -83,21 +84,14 @@ final class PostmanRouteWriter implements RouteWriter
 
         $segmentKey = Sanitizer::filename($segment['safe_key'] ?? $segment['key'] ?? null);
 
-        $filePath = rtrim($path, '/\\') . '/' . $segmentKey . '.json';
+        $filePath = PathGuard::join($path, $segmentKey . '.json');
 
         $json = json_encode($collection, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
         if ($json === false) {
             throw new \RuntimeException('Failed to encode Postman collection to JSON: ' . json_last_error_msg());
         }
 
-        try {
-            $this->filesystem->ensureDirectoryExists(dirname($filePath));
-            $this->filesystem->put($filePath, $json . PHP_EOL);
-        } catch (\Throwable $e) {
-            $msg = sprintf('Failed to write Postman collection to "%s": %s', $filePath, $e->getMessage());
-
-            throw new \RuntimeException($msg, 0, $e);
-        }
+        $this->filesystem->writeFile($filePath, $json . PHP_EOL, 'PostmanRouteWriter');
     }
 
     /**

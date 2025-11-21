@@ -6,7 +6,7 @@
  * PHP 8.1+
  *
  * @package   Equidna\LaravelDocbot\Routing\Writers
- * @author    EquidnaMX <info@equidna.mx>
+ * @author    Gabriel Ruelas <gruelasjr@gmail.com>
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 
@@ -16,7 +16,8 @@ use Equidna\LaravelDocbot\Contracts\RouteWriter;
 use Equidna\LaravelDocbot\Routing\Support\RouteDescriptionExtractor;
 use Equidna\LaravelDocbot\Routing\Support\Sanitizer;
 use Equidna\LaravelDocbot\Support\ValueHelper;
-use Illuminate\Filesystem\Filesystem;
+use Equidna\LaravelDocbot\Support\WriterFilesystem;
+use Equidna\LaravelDocbot\Support\PathGuard;
 use Illuminate\Support\Str;
 
 /**
@@ -45,11 +46,11 @@ use Illuminate\Support\Str;
 final class MarkdownRouteWriter implements RouteWriter
 {
     /**
-     * @param  Filesystem                $filesystem   Filesystem instance for writes.
+     * @param  WriterFilesystem         $filesystem   Filesystem instance for writes.
      * @param  RouteDescriptionExtractor $descriptions Description extractor helper.
      */
     public function __construct(
-        private Filesystem $filesystem,
+        private WriterFilesystem $filesystem,
         private RouteDescriptionExtractor $descriptions,
     ) {
         //
@@ -79,16 +80,9 @@ final class MarkdownRouteWriter implements RouteWriter
 
         $segmentKey = Sanitizer::filename($segment['safe_key'] ?? $segment['key'] ?? null);
 
-        $filePath = rtrim($path, '/\\') . '/' . $segmentKey . '.md';
+        $filePath = PathGuard::join($path, $segmentKey . '.md');
 
-        try {
-            $this->filesystem->ensureDirectoryExists(dirname($filePath));
-            $this->filesystem->put($filePath, $document);
-        } catch (\Throwable $e) {
-            $msg = sprintf('Failed to write Markdown route documentation to "%s": %s', $filePath, $e->getMessage());
-
-            throw new \RuntimeException($msg, 0, $e);
-        }
+        $this->filesystem->writeFile($filePath, $document, 'MarkdownRouteWriter');
     }
 
     /**
@@ -178,18 +172,8 @@ final class MarkdownRouteWriter implements RouteWriter
             return $values;
         }
 
-        $normalized = [];
+        $list = ValueHelper::stringList($values);
 
-        foreach ($values as $value) {
-            $stringValue = ValueHelper::stringOrNull($value);
-
-            if ($stringValue === null) {
-                continue;
-            }
-
-            $normalized[] = $stringValue;
-        }
-
-        return implode(', ', $normalized);
+        return implode(', ', $list);
     }
 }

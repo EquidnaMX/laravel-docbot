@@ -6,7 +6,7 @@
  * PHP 8.1+
  *
  * @package   Equidna\LaravelDocbot
- * @author    EquidnaMX <info@equidna.mx>
+ * @author    Gabriel Ruelas <gruelasjr@gmail.com>
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 
@@ -31,6 +31,7 @@ use Equidna\LaravelDocbot\Routing\Segments\ConfigSegmentResolver;
 use Equidna\LaravelDocbot\Routing\Support\RouteDescriptionExtractor;
 use Equidna\LaravelDocbot\Routing\Writers\MarkdownRouteWriter;
 use Equidna\LaravelDocbot\Routing\Writers\PostmanRouteWriter;
+use Equidna\LaravelDocbot\Support\WriterFilesystem;
 use Equidna\LaravelDocbot\Support\PathGuard;
 use Equidna\LaravelDocbot\Support\ValueHelper;
 use RuntimeException;
@@ -87,82 +88,107 @@ class LaravelDocbotServiceProvider extends ServiceProvider
      */
     private function registerRouteServices(): void
     {
-        $this->app->singleton(RouteDescriptionExtractor::class, RouteDescriptionExtractor::class);
+        $this->app->singleton(
+            RouteDescriptionExtractor::class,
+            RouteDescriptionExtractor::class
+        );
 
-        $this->app->singleton(ConfigSegmentResolver::class, function (Container $app): ConfigSegmentResolver {
-            /** @var ConfigRepository $config */
-            $config = $app->make(ConfigRepository::class);
-
-            return new ConfigSegmentResolver(
-                $this->resolveAssocConfig($config->get('docbot.route_defaults', [])),
-                $this->resolveSegmentDefinitions($config->get('docbot.segments', [])),
-            );
-        });
-
-        $this->app->singleton(RouteCollector::class, function (Container $app): RouteCollector {
-            /** @var ConfigRepository $config */
-            $config = $app->make(ConfigRepository::class);
-            $collectorClass = $this->resolveTypedClassString(
-                $config->get('docbot.routes.collector', RouterRouteCollector::class),
-                RouterRouteCollector::class,
-                RouteCollector::class,
-            );
-
-            $collector = $app->make($collectorClass);
-
-            if (!$collector instanceof RouteCollector) {
-                throw new RuntimeException('Docbot route collector must implement RouteCollector.');
+        $this->app->singleton(
+            WriterFilesystem::class,
+            function (Container $app): WriterFilesystem {
+                return new WriterFilesystem($app->make(Filesystem::class));
             }
+        );
 
-            return $collector;
-        });
+        $this->app->singleton(
+            ConfigSegmentResolver::class,
+            function (Container $app): ConfigSegmentResolver {
+                /** @var ConfigRepository $config */
+                $config = $app->make(ConfigRepository::class);
 
-        $this->app->singleton(RouteSegmentResolver::class, function (Container $app): RouteSegmentResolver {
-            /** @var ConfigRepository $config */
-            $config = $app->make(ConfigRepository::class);
-            $resolverClass = $this->resolveTypedClassString(
-                $config->get('docbot.routes.segment_resolver', ConfigSegmentResolver::class),
-                ConfigSegmentResolver::class,
-                RouteSegmentResolver::class,
-            );
-
-            $resolver = $app->make($resolverClass);
-
-            if (!$resolver instanceof RouteSegmentResolver) {
-                throw new RuntimeException('Docbot route segment resolver must implement RouteSegmentResolver.');
+                return new ConfigSegmentResolver(
+                    $this->resolveAssocConfig($config->get('docbot.route_defaults', [])),
+                    $this->resolveSegmentDefinitions($config->get('docbot.segments', [])),
+                );
             }
+        );
 
-            return $resolver;
-        });
+        $this->app->singleton(
+            RouteCollector::class,
+            function (Container $app): RouteCollector {
+                /** @var ConfigRepository $config */
+                $config = $app->make(ConfigRepository::class);
+                $collectorClass = $this->resolveTypedClassString(
+                    $config->get('docbot.routes.collector', RouterRouteCollector::class),
+                    RouterRouteCollector::class,
+                    RouteCollector::class,
+                );
 
-        $this->app->bind(MarkdownRouteWriter::class, function (Container $app): MarkdownRouteWriter {
-            return new MarkdownRouteWriter(
-                $app->make(Filesystem::class),
-                $app->make(RouteDescriptionExtractor::class),
-            );
-        });
+                $collector = $app->make($collectorClass);
+
+                if (!$collector instanceof RouteCollector) {
+                    throw new RuntimeException('Docbot route collector must implement RouteCollector.');
+                }
+
+                return $collector;
+            }
+        );
+
+        $this->app->singleton(
+            RouteSegmentResolver::class,
+            function (Container $app): RouteSegmentResolver {
+                /** @var ConfigRepository $config */
+                $config = $app->make(ConfigRepository::class);
+                $resolverClass = $this->resolveTypedClassString(
+                    $config->get('docbot.routes.segment_resolver', ConfigSegmentResolver::class),
+                    ConfigSegmentResolver::class,
+                    RouteSegmentResolver::class,
+                );
+
+                $resolver = $app->make($resolverClass);
+
+                if (!$resolver instanceof RouteSegmentResolver) {
+                    throw new RuntimeException('Docbot route segment resolver must implement RouteSegmentResolver.');
+                }
+
+                return $resolver;
+            }
+        );
+
+        $this->app->bind(
+            MarkdownRouteWriter::class,
+            function (Container $app): MarkdownRouteWriter {
+                return new MarkdownRouteWriter(
+                    $app->make(WriterFilesystem::class),
+                    $app->make(RouteDescriptionExtractor::class),
+                );
+            }
+        );
 
         $this->app->bind(PostmanRouteWriter::class, function (Container $app): PostmanRouteWriter {
-            return new PostmanRouteWriter($app->make(Filesystem::class));
+            return new PostmanRouteWriter($app->make(WriterFilesystem::class));
         });
 
-        $this->app->singleton(RouteWriterManager::class, function (Container $app): RouteWriterManager {
-            /** @var ConfigRepository $config */
-            $config = $app->make(ConfigRepository::class);
-            $writers = $this->resolveTypedClassList(
-                $config->get('docbot.routes.writers'),
-                [
-                    MarkdownRouteWriter::class,
-                    PostmanRouteWriter::class,
-                ],
-                RouteWriter::class,
-            );
+        $this->app->singleton(
+            RouteWriterManager::class,
+            function (Container $app): RouteWriterManager {
+                /** @var ConfigRepository $config */
+                $config = $app->make(ConfigRepository::class);
+                $writers = $this->resolveTypedClassList(
+                    $config->get('docbot.routes.writers'),
+                    [
+                        MarkdownRouteWriter::class,
+                        PostmanRouteWriter::class,
+                    ],
+                    RouteWriter::class,
+                );
 
-            return new RouteWriterManager(
-                $app,
-                $writers,
-            );
-        });
+                return new RouteWriterManager(
+                    $app,
+                    $writers,
+                );
+            }
+        );
     }
 
     /**
@@ -193,7 +219,7 @@ class LaravelDocbotServiceProvider extends ServiceProvider
             );
 
             return new MarkdownCommandWriter(
-                $app->make(Filesystem::class),
+                $app->make(WriterFilesystem::class),
                 $outputDir,
                 $filename,
             );

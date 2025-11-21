@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- No changes yet.
+
+## [0.2.0] - 2025-11-20
+
 - **Add OpenAPI 3.0 support:** New `OpenApiRouteWriter` generates industry-standard OpenAPI/Swagger specifications in YAML format for enhanced API documentation and tooling integration.
 - Remove `declare(strict_types=1)` from source files to align with the project's coding standard and tooling.
 - Improve filesystem error handling in writers (Markdown/Postman/Commands): writers now ensure directories exist, validate JSON encoding where applicable, and throw descriptive errors on failure.

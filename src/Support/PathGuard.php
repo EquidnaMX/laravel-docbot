@@ -6,7 +6,7 @@
  * PHP 8.1+
  *
  * @package   Equidna\LaravelDocbot\Support
- * @author    EquidnaMX <info@equidna.mx>
+ * @author    Gabriel Ruelas <gruelasjr@gmail.com>
  * @license   https://opensource.org/licenses/MIT MIT License
  */
 
@@ -229,7 +229,13 @@ final class PathGuard
             return true;
         }
 
-        return preg_match('/^[A-Za-z]:[\\\/]/', $path) === 1;
+        // Windows absolute path check: letter + ':' + slash or backslash
+        if (strlen($path) >= 3 && ctype_alpha($path[0]) && $path[1] === ':') {
+            $sep = $path[2];
+            return $sep === '\\' || $sep === '/';
+        }
+
+        return false;
     }
 
     /**
